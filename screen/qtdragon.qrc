@@ -1,0 +1,7 @@
+<RCC>
+  <qresource prefix="images">
+    <file>../images/brushed_metal.png</file>
+    <file>../images/checked.png</file>
+    <file>../images/unchecked.png</file>
+  </qresource>
+</RCC>

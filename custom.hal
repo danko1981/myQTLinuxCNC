@@ -1,0 +1,53 @@
+# --- CONFIGURAZIONE MPG ESP32 - FIX WCS ---
+
+loadusr -Wn esp_mpg ./esp32_mpg.py
+loadrt not count=1
+addf not.0 servo-thread
+
+# JOGGING
+setp axis.x.jog-enable 1
+setp axis.y.jog-enable 1
+setp axis.z.jog-enable 1
+setp axis.a.jog-enable 1
+
+# SCALA
+net mpg-scale esp_mpg.scale => axis.x.jog-scale
+net mpg-scale esp_mpg.scale => axis.y.jog-scale
+net mpg-scale esp_mpg.scale => axis.z.jog-scale
+net mpg-scale esp_mpg.scale => axis.a.jog-scale
+
+# CONTEGGI
+net mpg-x esp_mpg.count-x => axis.x.jog-counts
+net mpg-y esp_mpg.count-y => axis.y.jog-counts
+net mpg-z esp_mpg.count-z => axis.z.jog-counts
+net mpg-a esp_mpg.count-a => axis.a.jog-counts
+
+# --- FEEDBACK POSIZIONE RIMOSSO ---
+# (Ora è gestito internamente da Python, non serve cablaggio HAL)
+
+# E-STOP
+net mpg-estop-sig esp_mpg.estop
+net mpg-estop-sig => halui.estop.activate
+net mpg-estop-sig => not.0.in
+net mpg-estop-rst not.0.out => halui.estop.reset
+net mpg-estop-rst => halui.machine.on
+
+# ==========================================
+# JOYSTICK ANALOGICO CONTINUO
+# ==========================================
+
+# 1. Impostiamo il moltiplicatore di velocità a 1.0 (Così usiamo i valori in mm/s del Python)
+setp halui.axis.jog-speed 1.0
+setp halui.joint.jog-speed 1.0
+
+# 2. Asse X (Collega simultaneamente l'Asse Cartesiano X e il Motore 0)
+net joy-x-vel esp_mpg.joy-vel-x => halui.axis.x.analog halui.joint.0.analog
+
+# 3. Asse Y (Collega simultaneamente l'Asse Cartesiano Y e il Motore 1)
+net joy-y-vel esp_mpg.joy-vel-y => halui.axis.y.analog halui.joint.1.analog
+
+# 4. Asse Z (Collega simultaneamente l'Asse Cartesiano Z e il Motore 2)
+net joy-z-vel esp_mpg.joy-vel-z => halui.axis.z.analog halui.joint.2.analog
+
+# (Se in futuro aggiungi l'asse A e configuri il 4° motore nel .ini, userai: 
+# net joy-a-vel esp_mpg.joy-vel-a => halui.axis.a.analog halui.joint.3.analog)
