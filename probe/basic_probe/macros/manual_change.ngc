@@ -1,0 +1,93 @@
+o<manual_change> sub
+
+  ; --- 1. SALVATAGGIO STATO ---
+  #<metric_state> = #<_metric>
+  #<abs_state> = #<_absolute>
+  #<feed_state> = #<_feed>
+  #<speed_state> = #<_spindle_speed>
+
+  M5 M9           ; Ferma tutto per sicurezza
+  G21 G90         ; MM e Coordinate Assolute
+  G53 G0 Z0       ; Z alla massima altezza di sicurezza
+
+  ; --- 2. POSIZIONE DI CAMBIO ---
+  ; Legge X189.5 Y10 dal tuo file .ini
+  G53 G0 X[#<_ini[CHANGE_POSITION]X>] Y[#<_ini[CHANGE_POSITION]Y>]
+
+  (MSG, Cambia utensile manualmente e premi Avvia Ciclo)
+  M0 
+
+  ; --- 3. LOGICA DI TASTURA ANTICRASH ---
+  O100 if [#<_task> GT 0]
+    
+    ; Spostamento sopra il sensore (X1 Y0)
+    G53 G0 X[#<_ini[TOOLSENSOR]X>] Y[#<_ini[TOOLSENSOR]Y>]
+
+    ; CALCOLO LIMITE DI SICUREZZA:
+    ; Evitiamo l'errore "limit exceed" calcolando quanto spazio rimane
+    ; fino al limite di -150.0
+    #<z_attuale> = #<_z>
+    #<z_limite_ini> = #<_ini[AXIS_Z]MIN_LIMIT>
+    #<max_discesa_possibile> = [#<z_attuale> - #<z_limite_ini> - 0.1]
+    #<distanza_probe> = #<_ini[TOOLSENSOR]MAXPROBE>
+
+    ; Se il MAXPROBE impostato è maggiore dello spazio fisico, lo limitiamo
+    O110 if [#<distanza_probe> GT #<max_discesa_possibile>]
+        #<distanza_probe> = #<max_discesa_possibile>
+    O110 endif
+
+    ; --- PRIMO TOCCO (Ricerca) ---
+    G91 ; Passa in incrementale per la tastatura
+    G38.2 Z-[#<distanza_probe>] F[#<_ini[TOOLSENSOR]SEARCH_VEL>]
+    
+    O120 if [#5070 EQ 0]
+      G90
+      (abort, Errore: Sensore non raggiunto entro i limiti fisici dell'asse Z)
+    O120 endif
+
+    ; Ritrazione di 2mm
+    G1 Z2 F1000
+    
+    ; --- SECONDO TOCCO (Precisione) ---
+    G38.2 Z-4 F[#<_ini[TOOLSENSOR]PROBE_VEL>]
+    
+    O130 if [#5070 EQ 0]
+      G90
+      (abort, Errore: Contatto perso durante il tocco di precisione)
+    O130 endif
+
+    ; --- 4. APPLICAZIONE OFFSET ---
+    G90 ; Torna in assoluto
+    ; Applica l'offset: Posizione di contatto (#5063) meno il valore TOUCH (29.7)
+    G43.1 Z[#5063 - #<_ini[TOOLSENSOR]TOUCH>]
+    
+    G53 G0 Z0 ; Risalita di sicurezza
+
+    (MSG, Misurazione completata. Premi Avvia per riprendere il programma)
+    M0
+
+  O100 endif
+
+  ; --- 5. RIPRISTINO MODALE E MANDRINO ---
+  O140 if [#<metric_state> EQ 1]
+    G21
+  O140 else
+    G20
+  O140 endif
+
+  O150 if [#<abs_state> EQ 1]
+    G90
+  O150 else
+    G91
+  O150 endif
+
+  F#<feed_state>
+
+  ; Riavvio automatico del mandrino se era acceso
+  O160 if [#<speed_state> GT 0]
+    S#<speed_state> M3
+    G4 P2 ; Attesa stabilizzazione 2 secondi
+  O160 endif
+
+o<manual_change> endsub
+m2
