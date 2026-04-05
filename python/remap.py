@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import emccanon
 import interpreter
 import hal

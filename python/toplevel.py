@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import remap
 
 def change_tool(self, **words):
