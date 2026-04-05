@@ -9,20 +9,19 @@ import os
 # CONFIGURAZIONE DEBUG
 # ==========================================
 DEBUG_MODE = True
-# Il file di log verrà salvato nella stessa cartella dei tuoi G-Code o config
-LOG_FILE = "/home/andrea/linuxcnc/QTDragon/m6_remap_debug.log" 
+LOG_FILE = "/home/andrea/linuxcnc/myQTLinuxCNC/m6_remap_debug.log" 
 
 def log_debug(msg):
     """Funzione helper per scrivere i log su file e terminale."""
     if DEBUG_MODE:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
-        log_line = f"[{timestamp}] [M6 REMAP] {msg}"
-        print(log_line) # Utile se avvii LinuxCNC da terminale
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_line = "[{}] [M6 REMAP] {}".format(timestamp, msg)
+        print(log_line)
         try:
             with open(LOG_FILE, "a") as f:
                 f.write(log_line + "\n")
         except Exception as e:
-            pass # Evitiamo che un errore nel file di log blocchi la macchina
+            pass 
 
 # ==========================================
 # LOGICA PRINCIPALE M6
@@ -41,20 +40,20 @@ def manual_change_with_probe(self, **words):
         max_probe = float(self.ini.find("TOOLSENSOR", "MAXPROBE") or 150.0)
         z_min_limit = float(self.ini.find("AXIS_Z", "MIN_LIMIT") or -150.0)
         
-        log_debug(f"Parametri configurati -> Cambio: X{c_pos_x} Y{c_pos_y} | Sensore: X{s_pos_x} Y{s_pos_y}")
-        log_debug(f"Parametri Probe -> Spessore: {touch_z}mm | Corsa Max: {max_probe}mm | Limite Z: {z_min_limit}mm")
+        log_debug("Parametri configurati -> Cambio: X{} Y{} | Sensore: X{} Y{}".format(c_pos_x, c_pos_y, s_pos_x, s_pos_y))
+        log_debug("Parametri Probe -> Spessore: {}mm | Corsa Max: {}mm | Limite Z: {}mm".format(touch_z, max_probe, z_min_limit))
 
         # 2. Stato iniziale e sicurezza
         speed = self.params.get('_spindle_speed', 0)
-        log_debug(f"Stato mandrino salvato: {speed} RPM")
+        log_debug("Stato mandrino salvato: {} RPM".format(speed))
         
         log_debug("Fermata mandrino e sollevamento asse Z in sicurezza (G53 G0 Z0).")
         self.execute("M5 M9")
         self.execute("G21 G90 G53 G0 Z0")
         
         # 3. Spostamento in posizione di cambio
-        log_debug(f"In movimento verso posizione di cambio...")
-        self.execute(f"G53 G0 X{c_pos_x} Y{c_pos_y}")
+        log_debug("In movimento verso posizione di cambio...")
+        self.execute("G53 G0 X{} Y{}".format(c_pos_x, c_pos_y))
         
         # Interazione Operatore
         self.set_errormsg("CAMBIO UTENSILE: Inserisci utensile e premi AVVIA")
@@ -64,14 +63,14 @@ def manual_change_with_probe(self, **words):
         
         # 4. Spostamento sopra il sensore
         log_debug("Spostamento asse XY verso la posizione del sensore.")
-        self.execute(f"G53 G0 X{s_pos_x} Y{s_pos_y}")
+        self.execute("G53 G0 X{} Y{}".format(s_pos_x, s_pos_y))
         
         probe_success = False
         attempt = 1
         
         # 5. CICLO DI TASTATURA CON DEBUG
         while not probe_success:
-            log_debug(f"--- Inizio tentativo tastatura n. {attempt} ---")
+            log_debug("--- Inizio tentativo tastatura n. {} ---".format(attempt))
             self.execute("G90")
             self.execute("G53 G0 Z0")
             
@@ -79,13 +78,13 @@ def manual_change_with_probe(self, **words):
             current_z_abs = self.params['_z'] 
             available_travel = abs(current_z_abs - z_min_limit) - 1.0 
             probe_dist = min(max_probe, available_travel)
-            log_debug(f"Distanza max di ricerca impostata a {probe_dist}mm (per evitare Extra-Corsa).")
+            log_debug("Distanza max di ricerca impostata a {}mm (per evitare Extra-Corsa).".format(probe_dist))
 
             self.execute("G91")
             
             # --- Primo tocco (Ricerca) ---
-            log_debug(f"Esecuzione primo tocco G38.2 (Velocità 200).")
-            self.execute(f"G38.2 Z-{probe_dist} F200")
+            log_debug("Esecuzione primo tocco G38.2 (Velocita 200).")
+            self.execute("G38.2 Z-{} F200".format(probe_dist))
             
             if self.params[5070] == 0:
                 log_debug("ERRORE: Il primo tocco non ha rilevato il sensore.")
@@ -116,11 +115,11 @@ def manual_change_with_probe(self, **words):
         # 6. Calcolo e applicazione Offset
         last_probe_z = self.params[5063]
         new_offset = last_probe_z - touch_z
-        log_debug(f"Dati Offset: Z Assoluta Letta = {last_probe_z:.4f}mm | Spessore noto = {touch_z}mm")
-        log_debug(f"Applicazione nuovo Offset G43.1 Z = {new_offset:.4f}mm")
+        log_debug("Dati Offset: Z Assoluta Letta = {:.4f}mm | Spessore noto = {}mm".format(last_probe_z, touch_z))
+        log_debug("Applicazione nuovo Offset G43.1 Z = {:.4f}mm".format(new_offset))
         
         self.execute("G90")
-        self.execute(f"G43.1 Z{new_offset}")
+        self.execute("G43.1 Z{}".format(new_offset))
         
         # Risalita finale
         log_debug("Risalita di sicurezza a Z0 G53.")
@@ -128,17 +127,16 @@ def manual_change_with_probe(self, **words):
         
         # 7. Ripristino Mandrino
         if speed > 0:
-            log_debug(f"Comando di riaccensione mandrino a {speed} RPM. Attesa 2 secondi...")
-            self.set_errormsg(f"Riavvio mandrino a {speed} RPM...")
-            self.execute(f"S{speed} M3")
+            log_debug("Comando di riaccensione mandrino a {} RPM. Attesa 2 secondi...".format(speed))
+            self.set_errormsg("Riavvio mandrino a {} RPM...".format(speed))
+            self.execute("S{} M3".format(speed))
             self.execute("G4 P2")
 
         log_debug("=== PROCEDURA CAMBIO UTENSILE TERMINATA CON SUCCESSO ===")
         return interpreter.INTERP_OK
 
     except Exception as e:
-        # Se c'è un errore fatale Python (es. sintassi G-Code sbagliata, variabile inesistente)
-        error_str = f"ECCEZIONE CRITICA PYTHON: {str(e)}"
+        error_str = "ECCEZIONE CRITICA PYTHON: {}".format(str(e))
         log_debug(error_str)
         self.set_errormsg(error_str)
         return interpreter.INTERP_ERROR
