@@ -133,10 +133,16 @@ def manual_change_with_probe(self, **words):
             self.execute("G4 P2")
 
         log_debug("=== PROCEDURA CAMBIO UTENSILE TERMINATA CON SUCCESSO ===")
-        return interpreter.INTERP_OK
+        
+        # FIX PER PYTHON 2: Cediamo il valore di OK e poi chiudiamo
+        yield interpreter.INTERP_OK
+        return
 
     except Exception as e:
         error_str = "ECCEZIONE CRITICA PYTHON: {}".format(str(e))
         log_debug(error_str)
         self.set_errormsg(error_str)
-        return interpreter.INTERP_ERROR
+        
+        # FIX PER PYTHON 2: Cediamo l'errore e poi chiudiamo
+        yield interpreter.INTERP_ERROR
+        return
