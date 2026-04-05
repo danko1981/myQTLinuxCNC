@@ -6,10 +6,10 @@ import datetime
 import os
 
 # ==========================================
-# CONFIGURAZIONE DEBUG
+# CONFIGURAZIONE DEBUG E LOG
 # ==========================================
 DEBUG_MODE = True
-LOG_FILE = "/home/andrea/linuxcnc/myQTLinuxCNC/m6_remap_debug.log" 
+LOG_FILE = "./m6_remap_debug.log" 
 
 def log_debug(msg):
     """Funzione helper per scrivere i log su file e terminale."""
@@ -26,7 +26,7 @@ def log_debug(msg):
 # ==========================================
 # LOGICA PRINCIPALE M6
 # ==========================================
-def manual_change_with_probe(self, **words):
+def change_tool(self, **words):
     log_debug("=== INIZIO PROCEDURA CAMBIO UTENSILE ===")
     
     try:
@@ -134,7 +134,6 @@ def manual_change_with_probe(self, **words):
 
         log_debug("=== PROCEDURA CAMBIO UTENSILE TERMINATA CON SUCCESSO ===")
         
-        # FIX PER PYTHON 2: Cediamo il valore di OK e poi chiudiamo
         yield interpreter.INTERP_OK
         return
 
@@ -143,6 +142,5 @@ def manual_change_with_probe(self, **words):
         log_debug(error_str)
         self.set_errormsg(error_str)
         
-        # FIX PER PYTHON 2: Cediamo l'errore e poi chiudiamo
         yield interpreter.INTERP_ERROR
         return
