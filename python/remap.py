@@ -56,7 +56,6 @@ def change_tool(self, **words):
         self.execute("G21 G90 G53 G0 Z0")
         self.execute("G53 G0 X{} Y{}".format(c_pos_x, c_pos_y))
         
-        # --- SINCRO: Aspetta che la macchina arrivi fisicamente al cambio ---
         yield interpreter.INTERP_EXECUTE_FINISH
         
         # 3. Interazione Operatore
@@ -64,7 +63,6 @@ def change_tool(self, **words):
         log_debug("M0: Macchina in pausa. In attesa del comando AVVIA/RESUME da operatore.")
         self.execute("M0")
         
-        # --- SINCRO: Aspetta che l'operatore prema fisicamente AVVIA ---
         yield interpreter.INTERP_EXECUTE_FINISH 
         log_debug("Operatore ha confermato la ripresa del programma.")
         
@@ -72,7 +70,6 @@ def change_tool(self, **words):
         log_debug("Spostamento asse XY verso la posizione del sensore.")
         self.execute("G53 G0 X{} Y{}".format(s_pos_x, s_pos_y))
         
-        # --- SINCRO: Aspetta di essere in posizione sopra il sensore ---
         yield interpreter.INTERP_EXECUTE_FINISH
         
         probe_success = False
@@ -81,10 +78,8 @@ def change_tool(self, **words):
         # 5. CICLO DI TASTATURA
         while not probe_success:
             log_debug("--- Inizio tentativo tastatura n. {} ---".format(attempt))
-            self.execute("G90")
-            self.execute("G53 G0 Z0")
+            self.execute("G90 G53 G0 Z0")
             
-            # --- SINCRO: Aspetta di arrivare a Z0 prima di ricalcolare i limiti ---
             yield interpreter.INTERP_EXECUTE_FINISH
             
             # Ricalcolo dinamico sicurezza Z
@@ -94,20 +89,19 @@ def change_tool(self, **words):
 
             self.execute("G91")
             
-            # --- Primo tocco (Ricerca) ---
-            log_debug("Esecuzione primo tocco G38.2...")
-            self.execute("G38.2 Z-{} F200".format(probe_dist))
+            # --- Primo tocco (Ricerca) con G38.3 per non abortire ---
+            log_debug("Esecuzione primo tocco G38.3 (nessun aborto di sistema se fallisce)...")
+            self.execute("G38.3 Z-{} F200".format(probe_dist))
             
-            # --- SINCRO FONDAMENTALE: Attende la fine fisica della tastatura ---
             yield interpreter.INTERP_EXECUTE_FINISH
             
             if self.params[5070] == 0:
                 log_debug("ERRORE: Il primo tocco non ha rilevato il sensore.")
-                self.execute("G90")
-                self.execute("G53 G0 Z0")
+                # Uniamo G90 e G53 assieme per sicurezza assoluta
+                self.execute("G90 G53 G0 Z0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 
-                self.set_errormsg("PROBE FALLITO (Nessun tocco). Controlla e premi AVVIA per riprovare, o STOP.")
+                self.set_errormsg("PROBE FALLITO. Controlla il sensore e premi AVVIA per riprovare.")
                 self.execute("M0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
@@ -116,18 +110,16 @@ def change_tool(self, **words):
             # --- Secondo tocco (Precisione) ---
             log_debug("Primo tocco avvenuto. Ritrazione di 2mm ed esecuzione tocco di precisione.")
             self.execute("G1 Z2 F1000")
-            self.execute("G38.2 Z-4 F50")
+            self.execute("G38.3 Z-4 F50")
             
-            # --- SINCRO FONDAMENTALE: Attende il tocco di precisione ---
             yield interpreter.INTERP_EXECUTE_FINISH
             
             if self.params[5070] == 0:
                 log_debug("ERRORE: Contatto perso durante il secondo tocco di precisione.")
-                self.execute("G90")
-                self.execute("G53 G0 Z0")
+                self.execute("G90 G53 G0 Z0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 
-                self.set_errormsg("PROBE FALLITO (Errore precisione). Controlla e premi AVVIA per riprovare, o STOP.")
+                self.set_errormsg("PROBE FALLITO (Errore precisione). Controlla e premi AVVIA per riprovare.")
                 self.execute("M0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
@@ -146,7 +138,6 @@ def change_tool(self, **words):
         self.execute("G43.1 Z{}".format(new_offset))
         self.execute("G53 G0 Z0")
         
-        # --- SINCRO: Aspetta la risalita finale in sicurezza ---
         yield interpreter.INTERP_EXECUTE_FINISH
         
         # 7. Ripristino Mandrino
@@ -167,5 +158,11 @@ def change_tool(self, **words):
         log_debug(error_str)
         self.set_errormsg(error_str)
         
+        # Ritorno forzato a G90 per evitare "Cannot use g53 incremental" in caso di panico
+        try:
+            self.execute("G90")
+        except:
+            pass
+            
         yield interpreter.INTERP_ERROR
         return
