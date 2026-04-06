@@ -48,7 +48,6 @@ def change_tool(self, **words):
         log_debug("Parametri Probe -> Spessore: {}mm | Corsa Max: {}mm | Limite Z: {}mm".format(touch_z, max_probe, z_min_limit))
 
         # 2. Stato iniziale e sicurezza
-        # Lettura sicura del mandrino bypassando il metodo .get()
         try:
             speed = self.params['_spindle_speed']
         except Exception:
@@ -64,9 +63,10 @@ def change_tool(self, **words):
         log_debug("In movimento verso posizione di cambio...")
         self.execute("G53 G0 X{} Y{}".format(c_pos_x, c_pos_y))
         
-        # Interazione Operatore
+        # --- PAUSA E INTERAZIONE OPERATORE ---
         self.set_errormsg("CAMBIO UTENSILE: Inserisci utensile e premi AVVIA")
-        log_debug("Sospensione esecuzione. In attesa del comando AVVIA/RESUME da operatore.")
+        log_debug("Esecuzione M0 inserita. In attesa del comando AVVIA/RESUME da operatore.")
+        self.execute("M0") # <--- AGGIUNTO IL COMANDO DI PAUSA
         yield interpreter.INTERP_EXECUTE_FINISH 
         log_debug("Operatore ha confermato la ripresa del programma.")
         
@@ -77,7 +77,7 @@ def change_tool(self, **words):
         probe_success = False
         attempt = 1
         
-        # 5. CICLO DI TASTATURA CON DEBUG
+        # 5. CICLO DI TASTATURA CON DEBUG E RETRY
         while not probe_success:
             log_debug("--- Inizio tentativo tastatura n. {} ---".format(attempt))
             self.execute("G90")
@@ -100,6 +100,7 @@ def change_tool(self, **words):
                 self.execute("G90")
                 self.execute("G53 G0 Z0")
                 self.set_errormsg("PROBE FALLITO (Nessun tocco). Controlla e premi AVVIA per riprovare, o STOP.")
+                self.execute("M0") # <--- AGGIUNTO M0 PER IL RETRY
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
                 continue
@@ -114,6 +115,7 @@ def change_tool(self, **words):
                 self.execute("G90")
                 self.execute("G53 G0 Z0")
                 self.set_errormsg("PROBE FALLITO (Errore precisione). Controlla e premi AVVIA per riprovare, o STOP.")
+                self.execute("M0") # <--- AGGIUNTO M0 PER IL RETRY
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
                 continue
