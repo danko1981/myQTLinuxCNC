@@ -34,7 +34,6 @@ def change_tool(self, **words):
         # 1. Lettura nativa del file .ini
         ini_path = os.getenv('INI_FILE_NAME')
         inifile = linuxcnc.ini(ini_path)
-        log_debug("Lettura parametri dal file: {}".format(ini_path))
         
         c_pos_x = float(inifile.find("CHANGE_POSITION", "X") or 189.5)
         c_pos_y = float(inifile.find("CHANGE_POSITION", "Y") or 10.0)
@@ -44,10 +43,6 @@ def change_tool(self, **words):
         max_probe = float(inifile.find("TOOLSENSOR", "MAXPROBE") or 150.0)
         z_min_limit = float(inifile.find("AXIS_Z", "MIN_LIMIT") or -150.0)
         
-        log_debug("Parametri configurati -> Cambio: X{} Y{} | Sensore: X{} Y{}".format(c_pos_x, c_pos_y, s_pos_x, s_pos_y))
-        log_debug("Parametri Probe -> Spessore: {}mm | Corsa Max: {}mm | Limite Z: {}mm".format(touch_z, max_probe, z_min_limit))
-
-        # 2. Stato iniziale e sicurezza
         try:
             speed = self.params['_spindle_speed']
         except Exception:
@@ -55,18 +50,21 @@ def change_tool(self, **words):
             
         log_debug("Stato mandrino salvato: {} RPM".format(speed))
         
-        log_debug("Fermata mandrino e sollevamento asse Z in sicurezza (G53 G0 Z0).")
+        # 2. Spostamento in posizione di cambio
+        log_debug("Fermata mandrino e movimento verso posizione di cambio...")
         self.execute("M5 M9")
         self.execute("G21 G90 G53 G0 Z0")
-        
-        # 3. Spostamento in posizione di cambio
-        log_debug("In movimento verso posizione di cambio...")
         self.execute("G53 G0 X{} Y{}".format(c_pos_x, c_pos_y))
         
-        # --- PAUSA E INTERAZIONE OPERATORE ---
+        # --- SINCRO: Aspetta che la macchina arrivi fisicamente al cambio ---
+        yield interpreter.INTERP_EXECUTE_FINISH
+        
+        # 3. Interazione Operatore
         self.set_errormsg("CAMBIO UTENSILE: Inserisci utensile e premi AVVIA")
-        log_debug("Esecuzione M0 inserita. In attesa del comando AVVIA/RESUME da operatore.")
-        self.execute("M0") # <--- AGGIUNTO IL COMANDO DI PAUSA
+        log_debug("M0: Macchina in pausa. In attesa del comando AVVIA/RESUME da operatore.")
+        self.execute("M0")
+        
+        # --- SINCRO: Aspetta che l'operatore prema fisicamente AVVIA ---
         yield interpreter.INTERP_EXECUTE_FINISH 
         log_debug("Operatore ha confermato la ripresa del programma.")
         
@@ -74,33 +72,43 @@ def change_tool(self, **words):
         log_debug("Spostamento asse XY verso la posizione del sensore.")
         self.execute("G53 G0 X{} Y{}".format(s_pos_x, s_pos_y))
         
+        # --- SINCRO: Aspetta di essere in posizione sopra il sensore ---
+        yield interpreter.INTERP_EXECUTE_FINISH
+        
         probe_success = False
         attempt = 1
         
-        # 5. CICLO DI TASTATURA CON DEBUG E RETRY
+        # 5. CICLO DI TASTATURA
         while not probe_success:
             log_debug("--- Inizio tentativo tastatura n. {} ---".format(attempt))
             self.execute("G90")
             self.execute("G53 G0 Z0")
             
+            # --- SINCRO: Aspetta di arrivare a Z0 prima di ricalcolare i limiti ---
+            yield interpreter.INTERP_EXECUTE_FINISH
+            
             # Ricalcolo dinamico sicurezza Z
             current_z_abs = self.params['_z'] 
             available_travel = abs(current_z_abs - z_min_limit) - 1.0 
             probe_dist = min(max_probe, available_travel)
-            log_debug("Distanza max di ricerca impostata a {}mm (per evitare Extra-Corsa).".format(probe_dist))
 
             self.execute("G91")
             
             # --- Primo tocco (Ricerca) ---
-            log_debug("Esecuzione primo tocco G38.2 (Velocita 200).")
+            log_debug("Esecuzione primo tocco G38.2...")
             self.execute("G38.2 Z-{} F200".format(probe_dist))
+            
+            # --- SINCRO FONDAMENTALE: Attende la fine fisica della tastatura ---
+            yield interpreter.INTERP_EXECUTE_FINISH
             
             if self.params[5070] == 0:
                 log_debug("ERRORE: Il primo tocco non ha rilevato il sensore.")
                 self.execute("G90")
                 self.execute("G53 G0 Z0")
+                yield interpreter.INTERP_EXECUTE_FINISH
+                
                 self.set_errormsg("PROBE FALLITO (Nessun tocco). Controlla e premi AVVIA per riprovare, o STOP.")
-                self.execute("M0") # <--- AGGIUNTO M0 PER IL RETRY
+                self.execute("M0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
                 continue
@@ -110,12 +118,17 @@ def change_tool(self, **words):
             self.execute("G1 Z2 F1000")
             self.execute("G38.2 Z-4 F50")
             
+            # --- SINCRO FONDAMENTALE: Attende il tocco di precisione ---
+            yield interpreter.INTERP_EXECUTE_FINISH
+            
             if self.params[5070] == 0:
                 log_debug("ERRORE: Contatto perso durante il secondo tocco di precisione.")
                 self.execute("G90")
                 self.execute("G53 G0 Z0")
+                yield interpreter.INTERP_EXECUTE_FINISH
+                
                 self.set_errormsg("PROBE FALLITO (Errore precisione). Controlla e premi AVVIA per riprovare, o STOP.")
-                self.execute("M0") # <--- AGGIUNTO M0 PER IL RETRY
+                self.execute("M0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
                 continue
@@ -131,10 +144,10 @@ def change_tool(self, **words):
         
         self.execute("G90")
         self.execute("G43.1 Z{}".format(new_offset))
-        
-        # Risalita finale
-        log_debug("Risalita di sicurezza a Z0 G53.")
         self.execute("G53 G0 Z0")
+        
+        # --- SINCRO: Aspetta la risalita finale in sicurezza ---
+        yield interpreter.INTERP_EXECUTE_FINISH
         
         # 7. Ripristino Mandrino
         if speed > 0:
@@ -142,6 +155,7 @@ def change_tool(self, **words):
             self.set_errormsg("Riavvio mandrino a {} RPM...".format(speed))
             self.execute("S{} M3".format(speed))
             self.execute("G4 P2")
+            yield interpreter.INTERP_EXECUTE_FINISH
 
         log_debug("=== PROCEDURA CAMBIO UTENSILE TERMINATA CON SUCCESSO ===")
         
