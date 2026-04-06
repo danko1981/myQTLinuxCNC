@@ -4,7 +4,7 @@ import interpreter
 import hal
 import datetime
 import os
-import linuxcnc  # Aggiunto per leggere il file INI
+import linuxcnc 
 
 # ==========================================
 # CONFIGURAZIONE DEBUG E LOG
@@ -48,7 +48,12 @@ def change_tool(self, **words):
         log_debug("Parametri Probe -> Spessore: {}mm | Corsa Max: {}mm | Limite Z: {}mm".format(touch_z, max_probe, z_min_limit))
 
         # 2. Stato iniziale e sicurezza
-        speed = self.params.get('_spindle_speed', 0)
+        # Lettura sicura del mandrino bypassando il metodo .get()
+        try:
+            speed = self.params['_spindle_speed']
+        except Exception:
+            speed = 0
+            
         log_debug("Stato mandrino salvato: {} RPM".format(speed))
         
         log_debug("Fermata mandrino e sollevamento asse Z in sicurezza (G53 G0 Z0).")
