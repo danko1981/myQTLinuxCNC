@@ -4,12 +4,13 @@ import interpreter
 import hal
 import datetime
 import os
+import linuxcnc  # Aggiunto per leggere il file INI
 
 # ==========================================
 # CONFIGURAZIONE DEBUG E LOG
 # ==========================================
 DEBUG_MODE = True
-LOG_FILE = "./m6_remap_debug.log" 
+LOG_FILE = "/home/andrea/linuxcnc/myQTLinuxCNC/m6_remap_debug.log" 
 
 def log_debug(msg):
     """Funzione helper per scrivere i log su file e terminale."""
@@ -30,15 +31,18 @@ def change_tool(self, **words):
     log_debug("=== INIZIO PROCEDURA CAMBIO UTENSILE ===")
     
     try:
-        # 1. Recupero parametri dal file .ini con validazione
-        log_debug("Lettura parametri INI...")
-        c_pos_x = float(self.ini.find("CHANGE_POSITION", "X") or 189.5)
-        c_pos_y = float(self.ini.find("CHANGE_POSITION", "Y") or 10.0)
-        s_pos_x = float(self.ini.find("TOOLSENSOR", "X") or 1.0)
-        s_pos_y = float(self.ini.find("TOOLSENSOR", "Y") or 0.0)
-        touch_z = float(self.ini.find("TOOLSENSOR", "TOUCH") or 29.7)
-        max_probe = float(self.ini.find("TOOLSENSOR", "MAXPROBE") or 150.0)
-        z_min_limit = float(self.ini.find("AXIS_Z", "MIN_LIMIT") or -150.0)
+        # 1. Lettura nativa del file .ini
+        ini_path = os.getenv('INI_FILE_NAME')
+        inifile = linuxcnc.ini(ini_path)
+        log_debug("Lettura parametri dal file: {}".format(ini_path))
+        
+        c_pos_x = float(inifile.find("CHANGE_POSITION", "X") or 189.5)
+        c_pos_y = float(inifile.find("CHANGE_POSITION", "Y") or 10.0)
+        s_pos_x = float(inifile.find("TOOLSENSOR", "X") or 1.0)
+        s_pos_y = float(inifile.find("TOOLSENSOR", "Y") or 0.0)
+        touch_z = float(inifile.find("TOOLSENSOR", "TOUCH") or 29.7)
+        max_probe = float(inifile.find("TOOLSENSOR", "MAXPROBE") or 150.0)
+        z_min_limit = float(inifile.find("AXIS_Z", "MIN_LIMIT") or -150.0)
         
         log_debug("Parametri configurati -> Cambio: X{} Y{} | Sensore: X{} Y{}".format(c_pos_x, c_pos_y, s_pos_x, s_pos_y))
         log_debug("Parametri Probe -> Spessore: {}mm | Corsa Max: {}mm | Limite Z: {}mm".format(touch_z, max_probe, z_min_limit))
