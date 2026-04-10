@@ -113,12 +113,16 @@ last_sent_feed_override = -1
 last_interp_state = -1
 saved_spindle_speed = 12000.0
 
+# --- FLAG DI SICUREZZA ---
+manual_spindle_paused = False 
+
 def force_refresh_all():
-    global last_sent_pos, last_sent_mode, last_sent_feed_override
+    global last_sent_pos, last_sent_mode, last_sent_feed_override, manual_spindle_paused
     dprint("Forzatura aggiornamento completo display (Refresh All)")
     last_sent_pos = {'X': -999999.0, 'Y': -999999.0, 'Z': -999999.0, 'A': -999999.0}
     last_sent_mode = -1 
     last_sent_feed_override = -1
+    manual_spindle_paused = False
 
 def is_machine_idle_and_ready():
     stat.poll()
@@ -195,7 +199,6 @@ def update_esp_dros():
             for axis, val in final_dict.items():
                 if abs(val - last_sent_pos[axis]) > 0.0005:
                     msg = "POS:" + axis + ":" + "{:.3f}".format(val) + "\n"
-                    # dprint("Aggiorno DRO {}: {:.3f}".format(axis, val)) # Decommenta per log continui
                     ser.write(msg.encode('utf-8'))
                     last_sent_pos[axis] = val
             last_send_time = current_time
@@ -272,8 +275,6 @@ try:
             if ser.inWaiting() > 0:
                 line = ser.readline().decode('utf-8', 'ignore').strip()
                 if line != "":
-                    # Rimuovi questa riga dprint se i movimenti JOG inquinano troppo il log
-                    # dprint("Serial RX -> " + str(line))
                     pass
                 
                 if line.startswith("JOG:"):
@@ -353,18 +354,23 @@ try:
                             
                             if stat.interp_state == linuxcnc.INTERP_IDLE:
                                 dprint("CYCLE_START: Avvio File da zero (AUTO_RUN)")
+                                manual_spindle_paused = False
                                 emc.auto(linuxcnc.AUTO_RUN, 0)
-                            elif stat.interp_state == linuxcnc.INTERP_PAUSED:
-                                dprint("CYCLE_START: Programma in pausa. Valutazione stato Mandrino...")
-                                is_spinning = False
-                                try: is_spinning = stat.spindle[0]['enabled'] or (stat.spindle[0]['direction'] != 0)
-                                except AttributeError: is_spinning = stat.spindle_enabled
                                 
-                                if not is_spinning:
-                                    # Usa la velocità salvata in memoria dal tasto Pausa
-                                    dprint("CYCLE_START: Accensione Mandrino a {} RPM. Attesa 3 secondi...".format(saved_spindle_speed))
-                                    emc.spindle(linuxcnc.SPINDLE_FORWARD, saved_spindle_speed)
-                                    time.sleep(3.0) 
+                            elif stat.interp_state == linuxcnc.INTERP_PAUSED:
+                                if manual_spindle_paused:
+                                    dprint("CYCLE_START: Ripresa da pausa manuale. Valutazione Mandrino...")
+                                    is_spinning = False
+                                    try: is_spinning = stat.spindle[0]['enabled'] or (stat.spindle[0]['direction'] != 0)
+                                    except AttributeError: is_spinning = stat.spindle_enabled
+                                    
+                                    if not is_spinning:
+                                        dprint("CYCLE_START: Accensione Mandrino a {} RPM. Attesa 3 sec...".format(saved_spindle_speed))
+                                        emc.spindle(linuxcnc.SPINDLE_FORWARD, saved_spindle_speed)
+                                        time.sleep(3.0) 
+                                    manual_spindle_paused = False
+                                else:
+                                    dprint("CYCLE_START: Pausa comandata da G-Code (es. M6). Salto accensione mandrino.")
                                     
                                 dprint("CYCLE_START: Ripresa esecuzione (AUTO_RESUME)")
                                 emc.auto(linuxcnc.AUTO_RESUME)
@@ -374,19 +380,18 @@ try:
                         stat.poll()
                         if stat.interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING]:
                             dprint("CYCLE_PAUSE_FULL: Salvataggio RPM e arresto mandrino")
-                            
-                            # Fotografa gli RPM attuali prima di spegnere
                             try:
                                 current_rpm = abs(stat.spindle[0]['speed'])
                                 if current_rpm > 0:
                                     saved_spindle_speed = current_rpm
                                     dprint("Velocita salvata in memoria: {}".format(saved_spindle_speed))
                             except Exception as e:
-                                dprint("Impossibile leggere RPM: {}".format(e))
+                                dprint("Impossibile leggere RPM: " + str(e))
                                 
                             emc.auto(linuxcnc.AUTO_PAUSE)
                             time.sleep(1.0)
                             emc.spindle(linuxcnc.SPINDLE_OFF)
+                            manual_spindle_paused = True # Segnaliamo che l'abbiamo spento noi
 
                     # 3. SHIFT + YELLOW: PAUSA SEMPLICE
                     elif cmd_part == "CYCLE_PAUSE":
@@ -401,6 +406,7 @@ try:
                         dprint("CYCLE_STOP: Abort Programma ed arresto mandrino")
                         emc.abort()
                         emc.spindle(linuxcnc.SPINDLE_OFF) 
+                        manual_spindle_paused = False # Resetta il flag
                         
                     # 5. SHIFT + RED: SPINDLE TOGGLE
                     elif cmd_part == "SPINDLE_TOGGLE":
