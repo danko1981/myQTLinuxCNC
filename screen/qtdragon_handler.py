@@ -822,10 +822,10 @@ class HandlerClass:
         else:
             self.add_alarm("Unknown touchoff routine specified")
             return
-        self.add_status("Touchoff to {} started".format(selector))
-        max_probe = self.w.lineEdit_max_probe.text()
-        search_vel = self.w.lineEdit_search_vel.text()
-        probe_vel = self.w.lineEdit_probe_vel.text()
+        self.add_status("Touchoff to {} started".format(selector))        
+        max_probe = INFO.INI.find("TOOLSENSOR", "MAXPROBE") or "125"
+        search_vel = INFO.INI.find("TOOLSENSOR", "SEARCH_VEL") or "200"
+        probe_vel = INFO.INI.find("TOOLSENSOR", "PROBE_VEL") or "50"
         ACTION.CALL_MDI("G21 G49")
         ACTION.CALL_MDI("G10 L20 P0 Z0")
         ACTION.CALL_MDI("G91")
