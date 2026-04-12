@@ -20,16 +20,16 @@ G10 L20 P0 Z0 (clear current offsets)
 G91 (switch to incremental mode)
 
 ; this section commented out for sim
-;G38.2 Z[-#<max_probe>] F#<search_vel> (probe down)
-;G1 Z4.0 (move up 4 mm)
-;G4 P0.5 (pause for 0.5 sec.)
-;G38.2 Z-6.0 F#<probe_vel> (probe down slower)
+G38.2 Z[-#<max_probe>] F#<search_vel> (probe down)
+G1 Z4.0 (move up 4 mm)
+G4 P0.5 (pause for 0.5 sec.)
+G38.2 Z-6.0 F#<probe_vel> (probe down slower)
 
 ; this section used for sim, comment out otherwise
-G1 Z-10 F#<search_vel>
+; G1 Z-10 F#<search_vel>
 
-G10 L20 P0 Z[#<sensor_height> - #<zero_height>]
-G90 (absolute distance mode)
-G53 G0 Z0 (move Z up to 0)
+;G10 L20 P0 Z[#<sensor_height> - #<zero_height>]
+;G90 (absolute distance mode)
+;G53 G0 Z0 (move Z up to 0)
 o<tool_sensor> endsub
 M2
