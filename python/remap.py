@@ -69,7 +69,8 @@ def change_tool(self, **words):
         # 4. Spostamento sopra il sensore
         log_debug("Spostamento asse XY verso la posizione del sensore.")
         self.execute("G53 G0 X{} Y{}".format(s_pos_x, s_pos_y))
-        
+        # Annulla l'offset dell'utensile precedente per evitare misurazioni falsate
+        self.execute("G49")
         yield interpreter.INTERP_EXECUTE_FINISH
         
         probe_success = False
@@ -128,14 +129,34 @@ def change_tool(self, **words):
             probe_success = True
             log_debug("Tastatura fisica completata con successo.")
 
-        # 6. Calcolo e applicazione Offset
-        last_probe_z = self.params[5063]
-        new_offset = last_probe_z - touch_z
-        log_debug("Dati Offset: Z Assoluta Letta = {:.4f}mm | Spessore noto = {}mm".format(last_probe_z, touch_z))
-        log_debug("Applicazione nuovo Offset G43.1 Z = {:.4f}mm".format(new_offset))
+       # 6. Calcolo e applicazione Offset Permanente in Tabella
+        s = linuxcnc.stat()
+        s.poll()
+        
+        latched_wcs_z = self.params[5063]
+        g5x_z = s.g5x_offset[2] 
+        g92_z = s.g92_offset[2] 
+        
+        last_probe_z_abs = latched_wcs_z + g5x_z + g92_z
+        new_offset = last_probe_z_abs - touch_z
+        
+        # Recupera il numero dell'utensile e della tasca (pocket) richiesti dal comando T
+        tool_num = self.selected_tool
+        pocket = self.selected_pocket
+        
+        log_debug("Registrazione Utensile {} in tabella con Z Offset = {:.4f}mm".format(tool_num, new_offset))
+        
+        # Comunica a LinuxCNC che l'utensile è fisicamente nel mandrino (aggiorna la GUI QtDragon)
+        emccanon.CHANGE_TOOL(pocket)
         
         self.execute("G90")
-        self.execute("G43.1 Z{}".format(new_offset))
+        
+        # G10 L1 P[utensile] Z[offset]: Scrive in modo PERMANENTE il valore nel file tool.tbl
+        self.execute("G10 L1 P{} Z{:.4f}".format(tool_num, new_offset))
+        
+        # G43 H[utensile]: Applica l'offset appena salvato
+        self.execute("G43 H{}".format(tool_num))
+        
         self.execute("G53 G0 Z0")
         
         yield interpreter.INTERP_EXECUTE_FINISH
