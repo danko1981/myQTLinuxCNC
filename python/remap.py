@@ -39,9 +39,9 @@ def change_tool(self, **words):
         c_pos_y = float(inifile.find("CHANGE_POSITION", "Y") or 10.0)
         s_pos_x = float(inifile.find("TOOLSENSOR", "X") or 1.0)
         s_pos_y = float(inifile.find("TOOLSENSOR", "Y") or 0.0)
-        touch_z = float(inifile.find("TOOLSENSOR", "TOUCH") or 29.7)
-        max_probe = float(inifile.find("TOOLSENSOR", "MAXPROBE") or 150.0)
-        z_min_limit = float(inifile.find("AXIS_Z", "MIN_LIMIT") or -150.0)
+        touch_z = float(inifile.find("TOOLSENSOR", "TOUCH") or 34.5)
+        max_probe = float(inifile.find("TOOLSENSOR", "MAXPROBE") or 120.0)
+        z_min_limit = float(inifile.find("AXIS_Z", "MIN_LIMIT") or -125.0)
         
         try:
             speed = self.params['_spindle_speed']
