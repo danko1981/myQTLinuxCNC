@@ -9,11 +9,6 @@ addf abs_spindle_feedback servo-thread
 #unlinkp iocontrol.0.tool-changed
 #unlinkp iocontrol.0.tool-prep-number
 
-net tool-change      hal_manualtoolchange.change   <=  iocontrol.0.tool-change
-net tool-changed     hal_manualtoolchange.changed  =>  iocontrol.0.tool-changed
-net tool-prep-number hal_manualtoolchange.number   <=  iocontrol.0.tool-prep-number
-net tool-prepare-loopback iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
-
 net xwidth           motion.analog-out-00 => qtdragon.x_width
 net ywidth           motion.analog-out-01 => qtdragon.y_width
 net avg_dia          motion.analog-out-02 => qtdragon.avg_diameter
