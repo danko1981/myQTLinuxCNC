@@ -129,31 +129,42 @@ def change_tool(self, **words):
             probe_success = True
             log_debug("Tastatura fisica completata con successo.")
 
-       # 6. Calcolo e applicazione Offset Permanente in Tabella
+      # 6. Calcolo e applicazione Offset Permanente in Tabella
         
-        # Recupero la coordinata Z ASSOLUTA (Machine Coordinate) dello scatto sonda.
-        # Il parametro #5073 è nativo di LinuxCNC e contiene la quota assoluta del tocco,
-        # ignorando totalmente G54, G92 o ritardi di lettura del Python stat().
-        last_probe_z_abs = self.params[5073]
+        # Lettura istantanea e sincrona dalla memoria interna dell'interprete (No ritardi!)
+        probed_z_wcs = self.params[5063]    # Quota di tocco (nel sistema WCS attuale)
+        current_cs = int(self.params[5220]) # Sistema di coordinate (1=G54, 2=G55, ecc.)
         
-        # Calcolo dell'offset esatto
+        # Recupera l'offset dello Zero Pezzo:
+        # La formula 5203 + (20 * indice) becca esattamente l'offset giusto: 
+        # Es: Se in G54 (CS=1), legge il #5223. Se in G55 (CS=2), legge il #5243.
+        g5x_z = self.params[5203 + (20 * current_cs)]
+        
+        g92_z = self.params[5213]           # Eventuale offset G92 Z
+        tool_offset_z = self.params[5403]   # Eventuale offset utensile G43 attivo
+        
+        # Calcolo INFAILIBILE della vera quota Assoluta della Macchina al momento del tocco
+        last_probe_z_abs = probed_z_wcs + g5x_z + g92_z + tool_offset_z
+        
+        # L'offset finale = Quota Assoluta Tocco - Spessore Sensore
         new_offset = last_probe_z_abs - touch_z
         
         tool_num = self.selected_tool
         pocket = self.selected_pocket
         
-        log_debug("Quota tocco Assoluta = {:.4f}mm | Spessore noto = {}mm".format(last_probe_z_abs, touch_z))
+        log_debug("Z Tocco WCS={:.4f}, G5x={:.4f}, G92={:.4f}, G43={:.4f}".format(probed_z_wcs, g5x_z, g92_z, tool_offset_z))
+        log_debug("Quota tocco Assoluta Macchina calcolata = {:.4f}mm".format(last_probe_z_abs))
         log_debug("Registrazione Utensile {} in tabella con Z Offset = {:.4f}mm".format(tool_num, new_offset))
         
         emccanon.CHANGE_TOOL(pocket)
         
         self.execute("G90")
         
-        # Registra la lunghezza permanente e l'applica
+        # Scrittura in tabella e attivazione dell'offset
         self.execute("G10 L1 P{} Z{:.4f}".format(tool_num, new_offset))
         self.execute("G43 H{}".format(tool_num))
         
-        # Risalita di sicurezza in coordinate macchina
+        # Risalita in Coordinate Macchina Assolute per sicurezza
         self.execute("G53 G0 Z0")
         
         yield interpreter.INTERP_EXECUTE_FINISH
