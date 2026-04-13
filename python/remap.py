@@ -130,33 +130,30 @@ def change_tool(self, **words):
             log_debug("Tastatura fisica completata con successo.")
 
        # 6. Calcolo e applicazione Offset Permanente in Tabella
-        s = linuxcnc.stat()
-        s.poll()
         
-        latched_wcs_z = self.params[5063]
-        g5x_z = s.g5x_offset[2] 
-        g92_z = s.g92_offset[2] 
+        # Recupero la coordinata Z ASSOLUTA (Machine Coordinate) dello scatto sonda.
+        # Il parametro #5073 è nativo di LinuxCNC e contiene la quota assoluta del tocco,
+        # ignorando totalmente G54, G92 o ritardi di lettura del Python stat().
+        last_probe_z_abs = self.params[5073]
         
-        last_probe_z_abs = latched_wcs_z + g5x_z + g92_z
+        # Calcolo dell'offset esatto
         new_offset = last_probe_z_abs - touch_z
         
-        # Recupera il numero dell'utensile e della tasca (pocket) richiesti dal comando T
         tool_num = self.selected_tool
         pocket = self.selected_pocket
         
+        log_debug("Quota tocco Assoluta = {:.4f}mm | Spessore noto = {}mm".format(last_probe_z_abs, touch_z))
         log_debug("Registrazione Utensile {} in tabella con Z Offset = {:.4f}mm".format(tool_num, new_offset))
         
-        # Comunica a LinuxCNC che l'utensile è fisicamente nel mandrino (aggiorna la GUI QtDragon)
         emccanon.CHANGE_TOOL(pocket)
         
         self.execute("G90")
         
-        # G10 L1 P[utensile] Z[offset]: Scrive in modo PERMANENTE il valore nel file tool.tbl
+        # Registra la lunghezza permanente e l'applica
         self.execute("G10 L1 P{} Z{:.4f}".format(tool_num, new_offset))
-        
-        # G43 H[utensile]: Applica l'offset appena salvato
         self.execute("G43 H{}".format(tool_num))
         
+        # Risalita di sicurezza in coordinate macchina
         self.execute("G53 G0 Z0")
         
         yield interpreter.INTERP_EXECUTE_FINISH
