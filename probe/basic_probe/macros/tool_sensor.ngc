@@ -3,8 +3,9 @@ o<tool_sensor> sub
 #<max_probe> = #<_ini[TOOLSENSOR]maxprobe>
 #<search_vel> = #<_ini[TOOLSENSOR]search_vel>
 #<probe_vel> = #<_ini[TOOLSENSOR]probe_vel>
-#<sensor_height> = #<_ini[TOOLSENSOR]touch>
-#<zero_height> = #1
+#<sensor_height> = #<_ini[TOOLSENSOR]sensor_height>
+#<zero_height> = #<_ini[PROBE]plate_thickness> (comment out to read from INI file)
+(#<zero_height> = #1)  (comment out to read from the qtdragon interface)
 
 (print, max_probe is #<max_probe>)
 (print, search vel is #<search_vel>)
