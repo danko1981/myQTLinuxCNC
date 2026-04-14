@@ -131,20 +131,17 @@ def change_tool(self, **words):
 
       # 6. Calcolo e applicazione Offset Permanente in Tabella
         
-        # Lettura istantanea e sincrona dalla memoria interna dell'interprete (No ritardi!)
-        probed_z_wcs = self.params[5063]    # Quota di tocco (nel sistema WCS attuale)
-        current_cs = int(self.params[5220]) # Sistema di coordinate (1=G54, 2=G55, ecc.)
+        # Lettura istantanea e sincrona dalla memoria interna dell'interprete
+        probed_z_wcs = self.params[5063]    # Quota di tocco
+        current_cs = int(self.params[5220]) # Sistema di coordinate
         
-        # Recupera l'offset dello Zero Pezzo:
-        # La formula 5203 + (20 * indice) becca esattamente l'offset giusto: 
-        # Es: Se in G54 (CS=1), legge il #5223. Se in G55 (CS=2), legge il #5243.
+        # Recupera l'offset dello Zero Pezzo (G54, G55, ecc)
         g5x_z = self.params[5203 + (20 * current_cs)]
-        
         g92_z = self.params[5213]           # Eventuale offset G92 Z
-        tool_offset_z = self.params[5403]   # Eventuale offset utensile G43 attivo
         
-        # Calcolo INFAILIBILE della vera quota Assoluta della Macchina al momento del tocco
-        last_probe_z_abs = probed_z_wcs + g5x_z + g92_z + tool_offset_z
+        # Calcolo INFAILIBILE della vera quota Assoluta della Macchina.
+        # N.B. Non si somma l'offset utensile perché la sonda scende sotto G49 (offset annullato).
+        last_probe_z_abs = probed_z_wcs + g5x_z + g92_z
         
         # L'offset finale = Quota Assoluta Tocco - Spessore Sensore
         new_offset = last_probe_z_abs - touch_z
@@ -152,7 +149,7 @@ def change_tool(self, **words):
         tool_num = self.selected_tool
         pocket = self.selected_pocket
         
-        log_debug("Z Tocco WCS={:.4f}, G5x={:.4f}, G92={:.4f}, G43={:.4f}".format(probed_z_wcs, g5x_z, g92_z, tool_offset_z))
+        log_debug("Z Tocco WCS={:.4f}, G5x={:.4f}, G92={:.4f}".format(probed_z_wcs, g5x_z, g92_z))
         log_debug("Quota tocco Assoluta Macchina calcolata = {:.4f}mm".format(last_probe_z_abs))
         log_debug("Registrazione Utensile {} in tabella con Z Offset = {:.4f}mm".format(tool_num, new_offset))
         
