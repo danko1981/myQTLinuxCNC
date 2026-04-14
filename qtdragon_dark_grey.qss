@@ -11,7 +11,7 @@ QToolTip {
     opacity: 200;
 }
 
-/** Pushbuttons **/
+/** Pushbuttons  **/
 QPushButton,
 ActionButton,
 SystemToolButton,
