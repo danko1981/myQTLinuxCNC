@@ -3,7 +3,7 @@ o<tool_sensor> sub
 #<max_probe> = #<_ini[TOOLSENSOR]maxprobe>
 #<search_vel> = #<_ini[TOOLSENSOR]search_vel>
 #<probe_vel> = #<_ini[TOOLSENSOR]probe_vel>
-#<sensor_height> = #<_ini[TOOLSENSOR]height>
+#<sensor_height> = #<_ini[TOOLSENSOR]touch>
 #<zero_height> = #1
 
 (print, max_probe is #<max_probe>)
