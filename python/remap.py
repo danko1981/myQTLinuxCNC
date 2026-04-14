@@ -39,7 +39,7 @@ def change_tool(self, **words):
         c_pos_y = float(inifile.find("CHANGE_POSITION", "Y") or 10.0)
         s_pos_x = float(inifile.find("TOOLSENSOR", "X") or 1.0)
         s_pos_y = float(inifile.find("TOOLSENSOR", "Y") or 0.0)
-        touch_z = float(inifile.find("TOOLSENSOR", "SENS_HEIGHT") or 40)
+        touch_z = float(inifile.find("TOOLSENSOR", "SENSOR_HEIGHT") or 40)
         max_probe = float(inifile.find("TOOLSENSOR", "MAXPROBE") or 120.0)
         z_min_limit = float(inifile.find("AXIS_Z", "MIN_LIMIT") or -125.0)
         
