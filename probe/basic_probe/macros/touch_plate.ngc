@@ -4,13 +4,14 @@ o<touch_plate> sub
 #<search_vel> = #<_ini[TOOLSENSOR]search_vel>
 #<probe_vel> = #<_ini[TOOLSENSOR]probe_vel>
 
-; Legge lo spessore inserito nella casella di testo dell'interfaccia QTDragon
-#<touch_height> = #1
+#<zero_height> = #<_ini[PROBE]plate_thickness> (comment out to read from INI file)
+; #<zero_height> = #1  (comment out to read from the qtdragon interface)
+
 
 (print, max_probe is #<max_probe>)
 (print, search vel is #<search_vel>)
 (print, probe vel is #<probe_vel>)
-(print, touch height is #<touch_height>)
+(print, touch height is #<zero_height>)
 
 G21 (Imposta sistema metrico)
 G49 (Annulla offset utensile - FONDAMENTALE!)
@@ -21,7 +22,7 @@ G1 Z1.0 F#<search_vel>                  (Risalita di 1mm esplicitando il feedrat
 G4 P0.5                                 (Pausa stabilizzazione 0.5 sec)
 G38.2 Z-2 F#<probe_vel>                 (Secondo tocco di precisione)
 
-G10 L20 P0 Z#<touch_height>             (Imposta il WCS attuale allo spessore del piattello)
+G10 L20 P0 Z#<zero_height>             (Imposta il WCS attuale allo spessore del piattello)
 G90                                     (Torna in coordinate assolute)
 G53 G0 Z0                               (Risalita in sicurezza a Zero Macchina)
 
