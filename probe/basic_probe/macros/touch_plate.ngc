@@ -14,7 +14,7 @@ o<touch_plate> sub
 (print, touch height is #<zero_height>)
 
 G21 (Imposta sistema metrico)
-G49 (Annulla offset utensile - FONDAMENTALE!)
+; --> commented out causes error with remapped M6 <-- G49 (Annulla offset utensile - FONDAMENTALE!)
 G91 (Passa in coordinate incrementali)
 
 G38.2 Z[-#<max_probe>] F#<search_vel>   (Primo tocco veloce)
