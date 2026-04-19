@@ -296,36 +296,26 @@ def process_serial_data():
                         elif target != "A": send_mdi("G10 L20 P0 " + target + "0")
                         force_refresh_all()
                         
-                elif cmd_part == "GOTO_ZERO":
+                elif cmd_part == "MACRO_1":
                     if is_machine_idle_and_ready():
                         send_mdi("G53 G0 Z0")
-                        if view_abs_mode: send_mdi("G53 G1 X0 Y0 F2000")
-                        else:
-                            send_mdi("G1 X0 Y0 F2000")
-                            send_mdi("G1 Z0 F1000")
-                
-                elif cmd_part == "GOTO_CHANGE":
-                    if is_machine_idle_and_ready():
-                        send_mdi("G53 G0 Z0")
-                        send_mdi("G53 G1 X190 Y10 F2000")
-                        send_mdi("G53 G0 Z-10")
+                        send_mdi("G53 G1 X0 Y0 F2000")
                         
-                elif cmd_part == "GOTO_REAR":
+                elif cmd_part == "MACRO_2":
                     if is_machine_idle_and_ready():
                         send_mdi("G53 G0 Z0")
-                        send_mdi("G53 G1 X5 Y615 F2000")
+                        send_mdi("G1 X0 Y0 F2000")
+                        send_mdi("G1 Z0 F1000")
+                        
+                elif cmd_part == "MACRO_3":
+                    if is_machine_idle_and_ready():
+                        send_mdi("M6 T1")                     
                
-                elif cmd_part == "TOOL_PROBE":
+                elif cmd_part == "MACRO_4":
                     if is_machine_idle_and_ready():
-                        send_mdi("G53 G0 Z0")
-                        send_mdi("G53 G0 X" + str(ini_sensor_x) + " Y" + str(ini_sensor_y))
-                        send_mdi("G38.2 Z" + str(ini_max_probe) + " F" + str(ini_search_vel))
-                        send_mdi("G91 G1 Z2 F1000")
-                        send_mdi("G90") 
-                        send_mdi("G38.2 Z" + str(ini_max_probe) + " F" + str(ini_probe_vel))
-                        send_mdi("G10 L10 P#5400 Z" + str(ini_touch_height))
-                        send_mdi("G43")
-                        send_mdi("G53 G0 Z0")
+                            dprint("Lancio Macro di Sistema: touch_plate")
+                            # Chiama il file touch_plate.ngc
+                            send_mdi("O<touch_plate> call")
 
         except Exception as e:
             eprint("Eccezione durante lettura/esecuzione Seriale: " + str(e))
