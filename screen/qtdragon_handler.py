@@ -815,37 +815,23 @@ class HandlerClass:
             self.w.spindle_pause.setChecked(False)
 
     def touchoff(self, selector):
+        # 1. Recuperiamo i valori dall'interfaccia (se vuoi passarli alle tue macro)
         if selector == 'touchplate':
             z_offset = float(self.w.lineEdit_touch_height.text())
+            # Chiama la tua macro personalizzata (es. touch_plate.ngc) passando l'offset come parametro
+            self.add_status("Avvio macro Touch Plate personalizzata...")
+            ACTION.CALL_MDI("O<touch_plate> call [{}]".format(z_offset))
+            
         elif selector == 'sensor':
-            z_offset = float(self.w.lineEdit_sensor_height.text()) - float(self.w.lineEdit_work_height.text())
+            # Puoi decidere di passare dei parametri, o semplicemente lanciare la macro
+            # che userai anche nel cambio utensile M6.
+            self.add_status("Avvio macro Tool Sensor personalizzata...")            
+            # Ad esempio, lanci la tua routine in probe/basic_probe/macros/tool_sensor.ngc
+            ACTION.CALL_MDI("O<tool_sensor> call")
+            
         else:
-            self.add_alarm("Unknown touchoff routine specified")
+            self.add_alarm("Routine di touchoff sconosciuta")
             return
-        self.add_status("Touchoff to {} started".format(selector))
-        max_probe = self.w.lineEdit_max_probe.text()
-        search_vel = self.w.lineEdit_search_vel.text()
-        probe_vel = self.w.lineEdit_probe_vel.text()
-        ACTION.CALL_MDI("G21 G49")
-        ACTION.CALL_MDI("G10 L20 P0 Z0")
-        ACTION.CALL_MDI("G91")
-        command = "G38.2 Z-{} F{}".format(max_probe, search_vel)
-        if ACTION.CALL_MDI_WAIT(command, 10) == -1:
-            ACTION.CALL_MDI("G90")
-            return
-        if ACTION.CALL_MDI_WAIT("G1 Z4.0"):
-            ACTION.CALL_MDI("G90")
-            return
-        ACTION.CALL_MDI("G4 P0.5")
-        command = "G38.2 Z-4.4 F{}".format(probe_vel)
-        if ACTION.CALL_MDI_WAIT(command, 10) == -1:
-            ACTION.CALL_MDI("G90")
-            return
-        command = "G10 L20 P0 Z{}".format(z_offset)
-        ACTION.CALL_MDI_WAIT(command)
-        command = "G1 Z10 F{}".format(search_vel)
-        ACTION.CALL_MDI_WAIT(command)
-        ACTION.CALL_MDI("G90")
 
     def kb_jog(self, state, joint, direction, fast = False, linear = True):
         if not STATUS.is_man_mode() or not STATUS.machine_is_on():

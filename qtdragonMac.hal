@@ -7,6 +7,17 @@ loadrt hal_parport cfg="0x0378 out"
 #setp parport.0.reset-time 5000
 loadrt stepgen step_type=0,0,0
 
+#===========================================================
+# DEBAUNCE DI PROBE.IN
+loadrt debounce cfg=1
+addf debounce.0 servo-thread
+setp debounce.0.delay 30
+# Invia il segnale elettrico "sporco" dentro il filtro debounce
+net probe-raw       <= parport.0.pin-13-in => debounce.0.0.in
+# Invia l'uscita pulita (senza rimbalzi) a LinuxCNC
+net probe-filtered  <= debounce.0.0.out => motion.probe-input
+#===========================================================
+
 addf parport.0.read base-thread
 addf stepgen.make-pulses base-thread
 addf parport.0.write base-thread
@@ -22,8 +33,6 @@ net spindle-cmd-rps     <= spindle.0.speed-out-rps
 net spindle-cmd-rps-abs <= spindle.0.speed-out-rps-abs
 net spindle-at-speed    => spindle.0.at-speed
 net spindle-on 			<= spindle.0.on
-
-net probe-in => motion.probe-input
 
 net xenable         => parport.0.pin-01-out
 net xstep           => parport.0.pin-02-out
@@ -42,7 +51,6 @@ net ystep           => parport.0.pin-16-out
 net both-home-x     <= parport.0.pin-10-in
 net both-home-y     <= parport.0.pin-11-in
 net both-home-z     <= parport.0.pin-12-in
-net probe-in        <= parport.0.pin-13-in
 net estop-ext       <= parport.0.pin-15-in-not
 
 setp stepgen.0.position-scale [JOINT_0]SCALE
@@ -98,3 +106,5 @@ net estop-ext => iocontrol.0.emc-enable-in
 #net tool-changed iocontrol.0.tool-changed <= hal_manualtoolchange.changed
 #net tool-number iocontrol.0.tool-prep-number => hal_manualtoolchange.number
 #net tool-prepare-loopback iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
+net tool-change-loopback iocontrol.0.tool-change => iocontrol.0.tool-changed
+net tool-prepare-loopback iocontrol.0.tool-prepare => iocontrol.0.tool-prepared

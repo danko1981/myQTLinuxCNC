@@ -142,20 +142,20 @@ def update_esp_dros():
             current_state = stat.interp_state
             current_mode = stat.task_mode
             
-            # 1. AUTO-ATTIVAZIONE FEED OVERRIDE
+            # SEGNALAZIONE FEED HOLD / RUNNING AL NEXTION
             if current_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING] and last_interp_state == linuxcnc.INTERP_IDLE:
-                dprint("Macchina avviata in AUTO: Abilito Override (SEL:F)")
                 ser.write("SEL:F\n".encode('utf-8'))
-                
-            elif current_state == linuxcnc.INTERP_IDLE and last_interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING]:
-                dprint("Macchina fermata/idle: Disabilito Override (SEL:0)")
-                ser.write("SEL:0\n".encode('utf-8')) 
-                
+            
+            # RIMOSSO: Il reset della selezione asse quando la macchina torna in IDLE
+            # elif current_state == linuxcnc.INTERP_IDLE and last_interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING]:
+            #     ser.write("SEL:0\n".encode('utf-8')) 
             last_interp_state = current_state
 
-            if current_mode == linuxcnc.MODE_MANUAL and last_sent_mode != linuxcnc.MODE_MANUAL:
-                dprint("Transizione a MANUALE: Disabilito Override (SEL:0)")
-                ser.write("SEL:0\n".encode('utf-8'))
+            # RIMOSSO: Il reset della selezione asse quando la macchina torna in MANUALE
+            # if current_mode == linuxcnc.MODE_MANUAL and last_sent_mode != linuxcnc.MODE_MANUAL:
+            #    ser.write("SEL:0\n".encode('utf-8'))
+
+            current_feed = int(stat.feedrate * 100)
 
             # 2. AGGIORNAMENTO TESTO OVERRIDE
             current_feed = int(stat.feedrate * 100)

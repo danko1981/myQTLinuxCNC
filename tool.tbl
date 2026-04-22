@@ -1,13 +1,8 @@
-T-99 P0 ;New Tool 
-T-99 P0 ;New Tool 
-T-99 P0 ;New Tool 
-T-99 P0 ;New Tool 
-T-99 P0 ;New Tool 
-T17 P1 D12.700000 ;12.7 - Vshape Engraving 
-T1 P1 ;CAM_SET 
+T0 P1 D4.000000 ;Probe Tool
+T1 P1 D0.250000 ;0.25mm Flat
 T2 P1 D0.500000 ;0.5mm Flat 
 T3 P1 D1.000000 ;1mm Flat 
-T4 P1 D2.000000 Z-30.000000 ;2mm Flat 
+T4 P1 D2.000000 ;2mm Flat 
 T5 P1 D3.000000 ;3mm Flat 
 T6 P1 D3.175000 ;3.175mm 1/8in Flat 
 T7 P1 D4.000000 ;4mm Flat 
@@ -18,5 +13,5 @@ T11 P1 D7.000000 ;7mm Flat
 T12 P1 D8.000000 ;8mm Flat 
 T13 P1 D12.000000 ;12mm Flat 
 T14 P1 D12.700000 ;12.7 mm 1/2in Flat 
-T15 P1 D25.000000 ;25 mm Flat 
-T16 P1 D4.000000 ;Probe Tool
+T15 P1 D25.000000 ;25 mm Flat
+T16 P1 D12.700000 ;12.7 - Vshape Engraving 
