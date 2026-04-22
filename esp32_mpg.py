@@ -322,7 +322,7 @@ def process_serial_data():
             break
 
 # ==========================================
-# AGGIORNAMENTO DRO 
+# AGGIORNAMENTO DRO
 # ==========================================
 def update_esp_dros():
     global last_send_time, last_sent_pos, ser, view_abs_mode, last_sent_mode
@@ -336,15 +336,33 @@ def update_esp_dros():
             current_state = stat.interp_state
             current_mode = stat.task_mode
             
+            # -------------------------------------------------------------
+            # FIX RESPONSIVITÀ VOLANTINO E QTDRAGON
+            # QTDragon usa l'MDI per task in background. Per non resettare
+            # l'asse selezionato, limitiamo l'invio di SEL:F / SEL:0 al Nextion
+            # SOLO alle reali esecuzioni di file G-code (MODE_AUTO).
+            # -------------------------------------------------------------
             if current_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING] and last_interp_state == linuxcnc.INTERP_IDLE:
-                ser.write("SEL:F\n".encode('utf-8'))
+                if current_mode == linuxcnc.MODE_AUTO:
+                    ser.write("SEL:F\n".encode('utf-8'))
+                    dprint("STATO: Esecuzione G-Code. Blocco Nextion (SEL:F).")
+
             elif current_state == linuxcnc.INTERP_IDLE and last_interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING]:
-                ser.write("SEL:0\n".encode('utf-8')) 
+                if current_mode == linuxcnc.MODE_AUTO:
+                    ser.write("SEL:0\n".encode('utf-8'))
+                    dprint("STATO: Fine G-Code. Sblocco Nextion (SEL:0).")
+
             last_interp_state = current_state
 
+            # Sblocco di sicurezza se usciamo in MANUALE (ignorato se proveniamo da MDI)
             if current_mode == linuxcnc.MODE_MANUAL and last_sent_mode != linuxcnc.MODE_MANUAL:
-                ser.write("SEL:0\n".encode('utf-8'))
+                if last_sent_mode == linuxcnc.MODE_AUTO:
+                    ser.write("SEL:0\n".encode('utf-8'))
+                    dprint("MODALITA: Ritorno in Manuale da Auto. Sblocco Nextion (SEL:0).")
 
+            # -------------------------------------------------------------
+            # AGGIORNAMENTO FEED OVERRIDE E MODALITA' MACCHINA
+            # -------------------------------------------------------------
             current_feed = int(stat.feedrate * 100)
             if current_feed != last_sent_feed_override:
                 msg = "OVR:F" + str(current_feed) + "%\n"
@@ -361,6 +379,9 @@ def update_esp_dros():
                 ser.write(msg.encode('utf-8'))
                 last_sent_mode = current_mode
 
+            # -------------------------------------------------------------
+            # CALCOLO E INVIO DELLE POSIZIONI ASSI
+            # -------------------------------------------------------------
             machine_pos = stat.actual_position 
             g5x_off = stat.g5x_offset
             g92_off = stat.g92_offset
@@ -382,7 +403,10 @@ def update_esp_dros():
                     ser.write(msg.encode('utf-8'))
                     last_sent_pos[axis] = val
             last_send_time = current_time
-        except Exception: pass
+            
+        # MODIFICA SICUREZZA: Esposizione in chiaro degli errori di loop
+        except Exception as e: 
+            eprint("ERRORE FATALE in update_esp_dros: " + str(e))
 
 # ==========================================
 # ESECUZIONE MDI ASINCRONA
