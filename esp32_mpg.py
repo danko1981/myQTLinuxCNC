@@ -3,10 +3,10 @@
 import sys
 import os
 import time
-import serial
+import serial # type: ignore
 import glob
 import subprocess
-import linuxcnc 
+import linuxcnc  # type: ignore
 
 # ==========================================
 # IMPOSTAZIONI DI DEBUG
@@ -23,7 +23,7 @@ def eprint(msg):
     print("[ERROR/INFO] " + str(msg))
 
 try:
-    import hal
+    import hal # type: ignore
 except ImportError:
     eprint("ERRORE CRITICO: Modulo 'hal' non trovato. Lo script deve girare sotto LinuxCNC.")
     sys.exit(1)
