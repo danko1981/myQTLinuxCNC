@@ -142,21 +142,32 @@ def update_esp_dros():
             current_state = stat.interp_state
             current_mode = stat.task_mode
             
-            # SEGNALAZIONE FEED HOLD / RUNNING AL NEXTION
+            # 1. GESTIONE SMART DELLO SCHERMO NEXTION E DEGLI ASSI
             if current_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING] and last_interp_state == linuxcnc.INTERP_IDLE:
-                ser.write("SEL:F\n".encode('utf-8'))
-            
-            # RIMOSSO: Il reset della selezione asse quando la macchina torna in IDLE
-            # elif current_state == linuxcnc.INTERP_IDLE and last_interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING]:
-            #     ser.write("SEL:0\n".encode('utf-8')) 
+                if current_mode == linuxcnc.MODE_AUTO: # Blocca schermo SOLO in Auto Run
+                    dprint("STATO INTERPRETE: Avvio Esecuzione AUTO. Invio SEL:F al Nextion (Blocco UI).")
+                    ser.write("SEL:F\n".encode('utf-8'))
+                else:
+                    # Se siamo in MDI (es. richiamo macro da QTDragon o M6), NON inviamo SEL:F
+                    dprint("STATO INTERPRETE: Esecuzione in background (MDI/Macro). Bypass blocco Nextion.")
+                    
+            elif current_state == linuxcnc.INTERP_IDLE and last_interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING]:
+                if last_sent_mode == linuxcnc.MODE_AUTO: # Sblocca e resetta asse SOLO uscendo da Auto Run
+                    dprint("STATO INTERPRETE: Fine Esecuzione AUTO -> IDLE. Invio SEL:0 al Nextion (Sblocco/Reset).")
+                    ser.write("SEL:0\n".encode('utf-8')) 
+                else:
+                    # Se usciamo da un MDI, non resettiamo la selezione dell'asse sul volantino
+                    dprint("STATO INTERPRETE: Fine Esecuzione in background -> IDLE. Mantenimento focus asse su Nextion.")
+                    
             last_interp_state = current_state
 
-            # RIMOSSO: Il reset della selezione asse quando la macchina torna in MANUALE
-            # if current_mode == linuxcnc.MODE_MANUAL and last_sent_mode != linuxcnc.MODE_MANUAL:
-            #    ser.write("SEL:0\n".encode('utf-8'))
-
-            current_feed = int(stat.feedrate * 100)
-
+            if current_mode == linuxcnc.MODE_MANUAL and last_sent_mode != linuxcnc.MODE_MANUAL:
+                if last_sent_mode == linuxcnc.MODE_AUTO: # Sblocca SOLO se torniamo in manuale da Auto Run
+                    dprint("CAMBIO MODALITÀ: Macchina in MANUALE (provenienza AUTO). Invio SEL:0 al Nextion.")
+                    ser.write("SEL:0\n".encode('utf-8'))
+                else:
+                    dprint("CAMBIO MODALITÀ: Macchina in MANUALE (provenienza MDI). Mantenimento focus asse su Nextion.")
+            
             # 2. AGGIORNAMENTO TESTO OVERRIDE
             current_feed = int(stat.feedrate * 100)
             if current_feed != last_sent_feed_override:
