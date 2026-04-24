@@ -870,6 +870,8 @@ class HandlerClass:
     def enable_onoff(self, state):
         if state:
             self.add_status("Machine ON")
+            # Forza il G54 bypassando le inizializzazioni residue di NativeCAM
+            ACTION.CALL_MDI("G54")
         else:
             self.add_status("Machine OFF")
         self.w.spindle_pause.setChecked(False)
