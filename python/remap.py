@@ -10,7 +10,8 @@ import linuxcnc
 # CONFIGURAZIONE DEBUG E LOG
 # ==========================================
 DEBUG_MODE = True
-LOG_FILE = "/home/andrea/linuxcnc/myQTLinuxCNC/m6_remap_debug.log" 
+LOG_FILE = "/home/andrea/linuxcnc/myQTLinuxCNC/m6_remap_debug.log"
+MAX_PROBE_ATTEMPTS = 10
 
 def log_debug(msg):
     """Funzione helper per scrivere i log su file e terminale."""
@@ -28,8 +29,16 @@ def log_debug(msg):
 # LOGICA PRINCIPALE M6
 # ==========================================
 def change_tool(self, **words):
+    # Nell'interprete di anteprima della GUI (self.task == 0) movimenti, M0 e
+    # tastatura non vengono eseguiti realmente: #5070 resta sempre 0 e il ciclo
+    # di tastatura girerebbe all'infinito bloccando il caricamento del file.
+    if not self.task:
+        emccanon.CHANGE_TOOL(self.selected_pocket)
+        yield interpreter.INTERP_OK
+        return
+
     log_debug("=== INIZIO PROCEDURA CAMBIO UTENSILE ===")
-    
+
     try:
         # 1. Lettura nativa del file .ini
         ini_path = os.getenv('INI_FILE_NAME')
@@ -78,6 +87,8 @@ def change_tool(self, **words):
         
         # 5. CICLO DI TASTATURA
         while not probe_success:
+            if attempt > MAX_PROBE_ATTEMPTS:
+                raise Exception("Tastatura fallita dopo {} tentativi".format(MAX_PROBE_ATTEMPTS))
             log_debug("--- Inizio tentativo tastatura n. {} ---".format(attempt))
             self.execute("G90 G53 G0 Z0")
             
