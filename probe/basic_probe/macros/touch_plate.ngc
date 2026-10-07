@@ -13,6 +13,14 @@ o<touch_plate> sub
 (print, probe vel is #<probe_vel>)
 (print, touch height is #<zero_height>)
 
+; Lo zero pezzo Z dipende dall'offset utensile attivo: se l'utensile non e' stato
+; misurato con il tool sensor (init tool), il primo M6 del programma lo sfalserebbe
+; della lunghezza utensile, mandando Z oltre il limite negativo.
+; #5403 = offset Z dell'utensile attivo (0 dopo l'avvio, per lo startup code G43 H0)
+o100 if [#<_current_tool> EQ 0 OR #5403 EQ 0]
+  (abort, Utensile non misurato: carica l'utensile con M61 Qn e premi TOUCH SENSOR prima del touch plate)
+o100 endif
+
 G21 (Imposta sistema metrico)
 ; --> commented out causes error with remapped M6 <-- G49 (Annulla offset utensile - FONDAMENTALE!)
 G91 (Passa in coordinate incrementali)
