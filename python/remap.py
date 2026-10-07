@@ -95,7 +95,11 @@ def change_tool(self, **words):
             yield interpreter.INTERP_EXECUTE_FINISH
             
             # Ricalcolo dinamico sicurezza Z
-            current_z_abs = self.params['_z'] 
+            # '_z' e' nel WCS attivo: per la quota macchina vanno sommati G5x e G92
+            # (l'offset utensile e' gia' annullato da G49)
+            cs = int(self.params[5220])
+            current_z_abs = self.params['_z'] + self.params[5203 + (20 * cs)] + self.params[5213]
+            log_debug("Quota macchina Z prima della tastatura = {:.4f}mm".format(current_z_abs))
             available_travel = abs(current_z_abs - z_min_limit) - 1.0 
             probe_dist = min(max_probe, available_travel)
 
