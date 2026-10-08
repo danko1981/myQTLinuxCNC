@@ -1,6 +1,8 @@
 o<touch_plate> sub
 
-#<max_probe> = #<_ini[TOOLSENSOR]maxprobe>
+; Corsa massima di ricerca del touch plate: se il piattello manca la punta non
+; scende nel pezzo oltre questa distanza (partire al massimo a questa quota sopra il piattello)
+#<max_probe> = #<_ini[PROBE]touch_plate_maxprobe>
 #<search_vel> = #<_ini[TOOLSENSOR]search_vel>
 #<probe_vel> = #<_ini[TOOLSENSOR]probe_vel>
 
@@ -22,16 +24,32 @@ o100 if [#<_current_tool> EQ 0 OR #5403 EQ 0]
 o100 endif
 
 G21 (Imposta sistema metrico)
+G43 H#<_current_tool> (offset attivo = offset in tabella, come dopo un M6)
 ; --> commented out causes error with remapped M6 <-- G49 (Annulla offset utensile - FONDAMENTALE!)
-G91 (Passa in coordinate incrementali)
 
-G38.2 Z[-#<max_probe>] F#<search_vel>   (Primo tocco veloce)
-G1 Z1.0 F#<search_vel>                  (Risalita di 1mm esplicitando il feedrate)
-G4 P0.5                                 (Pausa stabilizzazione 0.5 sec)
-G38.2 Z-2 F#<probe_vel>                 (Secondo tocco di precisione)
+; La tastatura parte dalla quota attuale: la corsa va limitata allo spazio che
+; resta fino al limite negativo di Z, altrimenti LinuxCNC rifiuta subito il G38.2.
+; #<_z> e' nel WCS attivo: sommando G5x, G92 e offset utensile si ha la quota macchina
+#<machine_z> = [#<_z> + #[5203 + 20 * #5220] + #5213 * #5210 + #5403]
+#<travel> = [#<machine_z> - #<_ini[AXIS_Z]min_limit> - 1]
+o110 if [#<travel> LT #<max_probe>]
+  #<max_probe> = #<travel>
+o110 endif
+(debug, quota macchina Z = #<machine_z>, corsa tastatura = #<max_probe>)
+o120 if [#<max_probe> LE 2]
+  (abort, Z troppo vicino al limite negativo: alza il mandrino prima del touch plate)
+o120 endif
+
+; Tastatura in coordinate assolute (#5063 = Z del tocco nel WCS attivo): se il G38.2
+; fallisce la macro si interrompe senza lasciare attivo G91
+G90 (Coordinate assolute)
+
+G38.2 Z[#<_z> - #<max_probe>] F#<search_vel>   (Primo tocco veloce)
+G1 Z[#5063 + 1.0] F#<search_vel>               (Risalita di 1mm sopra il tocco)
+G4 P0.5                                        (Pausa stabilizzazione 0.5 sec)
+G38.2 Z[#5063 - 1.0] F#<probe_vel>             (Secondo tocco di precisione)
 
 G10 L20 P0 Z#<zero_height>             (Imposta il WCS attuale allo spessore del piattello)
-G90                                     (Torna in coordinate assolute)
 G53 G0 Z0                               (Risalita in sicurezza a Zero Macchina)
 
 o<touch_plate> endsub

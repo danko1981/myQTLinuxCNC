@@ -25,22 +25,26 @@ G90 (absolute distance mode)
 G53 G0 Z0 (raise spindle to Z0)
 G53 G0 X#<_ini[TOOLSENSOR]x> Y#<_ini[TOOLSENSOR]y>
 G49 (cancel tool offset)
-G91 (switch to incremental mode)
 
+; Si parte da G53 Z0: la corsa non puo' superare lo spazio fino al limite negativo di Z
+o110 if [#<max_probe> GT [0 - #<_ini[AXIS_Z]min_limit> - 1]]
+  #<max_probe> = [0 - #<_ini[AXIS_Z]min_limit> - 1]
+o110 endif
+
+; Tastatura in coordinate assolute (#5063 = Z del tocco nel WCS attivo): se il G38.2
+; fallisce la macro si interrompe senza lasciare attivo G91
 ; this section commented out for sim
-G38.2 Z[-#<max_probe>] F#<search_vel> (probe down)
-G1 Z4.0 F#<search_vel> (move up 4 mm)
+G38.2 Z[#<_z> - #<max_probe>] F#<search_vel> (probe down)
+G1 Z[#5063 + 4.0] F#<search_vel> (move up 4 mm above the touch)
 G4 P0.5 (pause for 0.5 sec.)
-G38.2 Z-6.0 F#<probe_vel> (probe down slower)
+G38.2 Z[#5063 - 2.0] F#<probe_vel> (probe down slower)
 
 ; this section used for sim, comment out otherwise
-; G1 Z-10 F#<search_vel>
-
-G90 (absolute distance mode)
+; G1 Z[#<_z> - 10] F#<search_vel>
 
 ; #5063 e' la Z del tocco nel WCS attivo (con G49, quindi senza offset utensile):
 ; sommando gli offset G5x e G92 si ottiene la quota macchina assoluta
-#<touch_z_abs> = [#5063 + #[5203 + 20 * #5220] + #5213]
+#<touch_z_abs> = [#5063 + #[5203 + 20 * #5220] + #5213 * #5210]
 (print, quota macchina tocco = #<touch_z_abs>)
 
 G10 L1 P#<_current_tool> Z[#<touch_z_abs> - #<sensor_height>] (scrive l'offset in tabella)

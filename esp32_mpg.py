@@ -298,14 +298,15 @@ def process_serial_data():
                         
                 elif cmd_part == "MACRO_1":
                     if is_machine_idle_and_ready():
-                        send_mdi("G53 G0 Z0")
-                        send_mdi("G53 G1 X0 Y0 F2000")
-                        
+                        send_mdi("G90 G53 G0 Z0")
+                        send_mdi("G90 G53 G1 X0 Y0 F2000")
+
                 elif cmd_part == "MACRO_2":
+                    # Solo XY sullo zero pezzo, Z resta a G53 Z0: scendere a G54 Z0
+                    # porterebbe la punta sul pezzo, senza spazio per il touch plate
                     if is_machine_idle_and_ready():
-                        send_mdi("G53 G0 Z0")
-                        send_mdi("G1 X0 Y0 F2000")
-                        send_mdi("G1 Z0 F1000")
+                        send_mdi("G90 G53 G0 Z0")
+                        send_mdi("G90 G1 X0 Y0 F2000")
                         
                 elif cmd_part == "MACRO_3":
                     if is_machine_idle_and_ready():

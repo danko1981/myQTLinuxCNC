@@ -16,14 +16,14 @@ Il pendant è un volantino elettronico basato su **ESP32** con display touch **N
 
 | File | Ruolo |
 |------|-------|
-| [ESP32_Pendant/esp32_mpg.ino](ESP32_Pendant/esp32_mpg.ino) | Firmware ESP32: legge pulsanti, encoder, joystick e touch Nextion e li invia al PC come righe di testo. Riceve dal PC posizioni e stato e aggiorna il display. |
+| [ESP32_Pendant/esp32_mpg/esp32_mpg.ino](ESP32_Pendant/esp32_mpg/esp32_mpg.ino) | Firmware ESP32: legge pulsanti, encoder, joystick e touch Nextion e li invia al PC come righe di testo. Riceve dal PC posizioni e stato e aggiorna il display. |
 | [ESP32_Pendant/esp32_cncmpg_v2.HMI](ESP32_Pendant/esp32_cncmpg_v2.HMI) | Progetto grafico del display (Nextion Editor). |
 | [esp32_mpg.py](esp32_mpg.py) | Componente HAL userspace `esp_mpg`: traduce i messaggi seriali in pin HAL e comandi LinuxCNC e rimanda al pendant DRO, modo e feed override. |
 | [custom.hal](custom.hal) | Carica `esp32_mpg.py` e collega i suoi pin a jog, E-Stop e joystick. |
 
 ### Installazione
 
-1. **Firmware ESP32**: aprire `ESP32_Pendant/esp32_mpg.ino` con Arduino IDE (core ESP32 installato) e caricarlo sulla scheda.
+1. **Firmware ESP32**: aprire `ESP32_Pendant/esp32_mpg/esp32_mpg.ino` con Arduino IDE (core ESP32 installato) e caricarlo sulla scheda.
 2. **Display Nextion**: aprire `ESP32_Pendant/esp32_cncmpg_v2.HMI` con Nextion Editor e caricarlo sul display (tramite SD o USB-TTL).
 3. **PC LinuxCNC**:
    - pacchetti necessari: `python-serial` / `python3-serial` e `xdotool` (per la modalità mouse);
@@ -97,10 +97,10 @@ Nota: in `custom.hal` il joystick per l'asse A è commentato; va abilitato se si
 | **G54 … G57** | Attiva il sistema di coordinate scelto (MDI) e torna al DRO in coordinate pezzo. |
 | **Zero X / Y / Z** | `G10 L20 P0 <asse>0`: azzera l'asse nel sistema di coordinate attivo. Lo zero A non è gestito. |
 | **Zero ALL** | `G10 L20 P0 X0 Y0 Z0` |
-| **Macro 1** | `G53 G0 Z0`, poi `G53 G1 X0 Y0 F2000`: va allo zero macchina. |
-| **Macro 2** | `G53 G0 Z0`, `G1 X0 Y0 F2000`, `G1 Z0 F1000`: va allo zero pezzo. |
+| **Macro 1** | `G90 G53 G0 Z0`, poi `G90 G53 G1 X0 Y0 F2000`: va allo zero macchina. |
+| **Macro 2** | `G90 G53 G0 Z0`, poi `G90 G1 X0 Y0 F2000`: va sopra lo zero pezzo XY restando a Z macchina 0 (non scende a G54 Z0, così c'è spazio per il touch plate). |
 | **Macro 3** | `M6 T1`: cambio utensile con tastatura automatica (vedi `python/remap.py`). |
-| **Macro 4** | `O<touch_plate> call`: esegue [probe/basic_probe/macros/touch_plate.ngc](probe/basic_probe/macros/touch_plate.ngc). |
+| **Macro 4** | `O<touch_plate> call`: esegue [probe/basic_probe/macros/touch_plate.ngc](probe/basic_probe/macros/touch_plate.ngc). Richiede un utensile misurato con TOUCH SENSOR o M6; partire al massimo `[PROBE] TOUCH_PLATE_MAXPROBE` mm (40) sopra il piattello. |
 
 Le macro e i comandi MANDRINO, MODE e HOME vengono eseguiti solo se la macchina è abilitata, senza E-Stop e con l'interprete fermo. I comandi MDI passano temporaneamente in modo MDI e poi tornano in MANUALE; durante l'attesa lo script continua a leggere l'E-Stop.
 
