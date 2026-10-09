@@ -6,7 +6,8 @@ import time
 import serial
 import glob
 import subprocess
-import linuxcnc 
+import re
+import linuxcnc
 
 # ==========================================
 # IMPOSTAZIONI DI DEBUG
@@ -38,6 +39,8 @@ ini_max_probe = -10.0
 ini_search_vel = 200.0
 ini_probe_vel = 50.0
 ini_touch_height = 30.0
+ini_change_x = 189.5
+ini_change_y = 10.0
 
 JOY_G1_MAX_VELOCITY = 4200.0
 JOY_G0_RAPID_VELOCITY = 2400.0
@@ -52,6 +55,8 @@ if ini_path:
         ini_search_vel = float(inidata.find("TOOLSENSOR", "SEARCH_VEL") or ini_search_vel)
         ini_probe_vel = float(inidata.find("TOOLSENSOR", "PROBE_VEL") or ini_probe_vel)
         ini_touch_height = float(inidata.find("TOOLSENSOR", "TOUCH_HEIGHT") or ini_touch_height)
+        ini_change_x = float(inidata.find("CHANGE_POSITION", "X") or ini_change_x)
+        ini_change_y = float(inidata.find("CHANGE_POSITION", "Y") or ini_change_y)
         
         traj_def_vel = inidata.find("TRAJ", "DEFAULT_LINEAR_VELOCITY")
         if traj_def_vel: JOY_G1_MAX_VELOCITY = float(traj_def_vel) * 60.0
@@ -96,7 +101,11 @@ last_sent_mode = -1
 last_sent_feed_override = -1
 last_interp_state = -1
 saved_spindle_speed = 12000.0
-manual_spindle_paused = False 
+manual_spindle_paused = False
+
+# INIT TOOL da Nextion: la page2 (keypad) e' aperta e si attende il numero utensile
+waiting_tool = False
+pending_tool = None
 
 def force_refresh_all():
     global last_sent_pos, last_sent_mode, last_sent_feed_override, manual_spindle_paused
@@ -109,11 +118,55 @@ def is_machine_idle_and_ready():
     stat.poll()
     return (not stat.estop and stat.enabled and stat.interp_state == linuxcnc.INTERP_IDLE)
 
+def is_all_homed():
+    stat.poll()
+    return all(stat.homed[i] for i in range(stat.joints))
+
+def is_at_change_position():
+    # Verifica che i movimenti verso la posizione di cambio siano davvero finiti
+    # (non interrotti da E-Stop o abort): quote macchina XY e Z0
+    stat.poll()
+    if stat.estop or not stat.enabled: return False
+    pos = stat.actual_position
+    return (abs(pos[0] - ini_change_x) < 0.05 and abs(pos[1] - ini_change_y) < 0.05
+            and abs(pos[2]) < 0.05)
+
+def send_to_esp(msg):
+    if ser is None: return
+    try: ser.write((msg + "\n").encode('utf-8'))
+    except Exception as e: eprint("Errore invio a ESP32: " + str(e))
+
+def cancel_tool_init(reason):
+    global waiting_tool, pending_tool
+    if waiting_tool or pending_tool is not None:
+        dprint("INIT TOOL annullato: " + reason)
+    waiting_tool = False
+    pending_tool = None
+
+def parse_tool_number(text):
+    # Il keypad accetta anche lettere: valgono "5", "T5", "Q5" e "M61 Q5"
+    m = re.match(r'^(?:M61Q|T|Q)?(\d+)$', text.replace(" ", "").upper())
+    if not m: return None
+    n = int(m.group(1))
+    return n if n > 0 else None
+
+def run_tool_init(tool):
+    # Eseguito dal loop principale, a macchina ferma sulla posizione di cambio
+    dprint("INIT TOOL: dichiarazione utensile T{} e misura su tool sensor".format(tool))
+    send_mdi("M61 Q{}".format(tool))
+    stat.poll()
+    if stat.tool_in_spindle != tool:
+        eprint("INIT TOOL: M61 Q{} non accettato (utensile non in tabella?). Misura annullata.".format(tool))
+        return
+    send_mdi("O<tool_sensor> call")
+    force_refresh_all()
+
 # ==========================================
 # ELABORAZIONE SERIALE E COMANDI (CUORE DEL SISTEMA)
 # ==========================================
 def process_serial_data():
     global counts, saved_spindle_speed, manual_spindle_paused, view_abs_mode, ser
+    global waiting_tool, pending_tool
     if ser is None: return
 
     while ser.inWaiting() > 0:
@@ -122,10 +175,13 @@ def process_serial_data():
             if not line: continue
             
             # --- SICUREZZE ASSOLUTE (PRIORITÀ 1) ---
-            if line == "ESTOP:ON": 
+            if line == "ESTOP:ON":
                 c['estop'] = True
                 dprint("E-STOP: FORZATO TRAMITE API")
                 emc.state(linuxcnc.STATE_ESTOP) # Interruzione Istantanea Hard-Coded
+                if waiting_tool or pending_tool is not None:
+                    cancel_tool_init("E-STOP")
+                    send_to_esp("PAGE:MAIN")
                 continue
             elif line == "ESTOP:OFF": 
                 c['estop'] = False
@@ -182,6 +238,25 @@ def process_serial_data():
                     nx = float(parts[2]); ny = float(parts[3])
                     dx = int(nx * MOUSE_SPEED_MULTIPLIER); dy = int(ny * -MOUSE_SPEED_MULTIPLIER) 
                     if dx != 0 or dy != 0: subprocess.Popen(["xdotool", "mousemove_relative", "--", str(dx), str(dy)])
+
+            # --- INIT TOOL: numero utensile dal keypad Nextion (page2) ---
+            elif line.startswith("TOOL:SET:"):
+                text = line[len("TOOL:SET:"):]
+                tool = parse_tool_number(text)
+                if not waiting_tool:
+                    dprint("TOOL:SET '{}' ignorato: nessun INIT TOOL in corso".format(text))
+                elif tool is None:
+                    eprint("INIT TOOL: numero utensile non valido '{}'. Riprova.".format(text))
+                    send_to_esp("PAGE:TOOL")
+                else:
+                    # Eseguito dal loop principale, a macchina ferma
+                    waiting_tool = False
+                    pending_tool = tool
+                    dprint("INIT TOOL: ricevuto utensile T{}".format(tool))
+
+            elif line == "TOOL:CANCEL":
+                cancel_tool_init("annullato da Nextion")
+                force_refresh_all()
 
             elif line.startswith("SCALE:"):
                 parts = line.split(":")
@@ -308,9 +383,23 @@ def process_serial_data():
                         send_mdi("G90 G53 G0 Z0")
                         send_mdi("G90 G1 X0 Y0 F2000")
                         
-                elif cmd_part == "MACRO_3":
-                    if is_machine_idle_and_ready():
-                        send_mdi("M6 T1")                     
+                elif cmd_part == "INIT_TOOL":
+                    # Si va in posizione di cambio; il keypad (page2) si apre solo
+                    # quando il mandrino e' arrivato
+                    if is_machine_idle_and_ready() and is_all_homed():
+                        dprint("INIT TOOL: movimento in posizione di cambio")
+                        cancel_tool_init("nuovo INIT TOOL")
+                        send_mdi("G90 G53 G0 Z0")
+                        send_mdi("G90 G53 G0 X{} Y{}".format(ini_change_x, ini_change_y))
+                        if is_at_change_position():
+                            send_mdi("(MSG, CHANGE TOOL: monta l'utensile e inserisci il numero sul pendant)")
+                            waiting_tool = True
+                            send_to_esp("PAGE:TOOL")
+                            dprint("INIT TOOL: in posizione di cambio, keypad aperto")
+                        else:
+                            eprint("INIT TOOL: posizione di cambio non raggiunta, procedura annullata.")
+                    else:
+                        eprint("INIT TOOL rifiutato: macchina non pronta o non in homing.")
                
                 elif cmd_part == "MACRO_4":
                     if is_machine_idle_and_ready():
@@ -473,7 +562,13 @@ try:
         # IL CUORE DEL PROGRAMMA
         process_serial_data()
         update_esp_dros()
-        
+
+        # INIT TOOL: numero ricevuto, si procede appena la macchina e' ferma
+        if pending_tool is not None and is_machine_idle_and_ready():
+            tool = pending_tool
+            pending_tool = None
+            run_tool_init(tool)
+
         time.sleep(0.01)
 
 except KeyboardInterrupt:

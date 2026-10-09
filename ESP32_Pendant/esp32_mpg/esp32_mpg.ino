@@ -25,6 +25,11 @@
 #define JOY_Y_PIN 39
 #define JOY_BTN_PIN 18
 
+// --- PAGINE NEXTION ---
+#define NEXTION_MAIN_PAGE "page0"  // Pagina principale (DRO e pulsanti)
+#define NEXTION_TOOL_PAGE "page2"  // Keypad per il numero utensile (INIT TOOL)
+#define TOOL_TEXT_MAX_LEN 16       // Lunghezza massima del testo inviato dal keypad
+
 // --- COLORI NEXTION ---
 #define COLOR_GREEN 2032   // Verde standard Nextion
 #define COLOR_WHITE 63455  // Il tuo bianco
@@ -119,6 +124,14 @@ void nextionSetColor(String objName, int color) {
   Serial2.write(0xFF);
 }
 
+void nextionGotoPage(const char* pageName) {
+  Serial2.print("page ");
+  Serial2.print(pageName);
+  Serial2.write(0xFF);
+  Serial2.write(0xFF);
+  Serial2.write(0xFF);
+}
+
 void nextionSetVal(String objName, int val) {
   Serial2.print(objName);
   Serial2.print(".val=");
@@ -155,6 +168,18 @@ void updateNextionUI() {
   }
 }
 
+// Stato di sicurezza quando si entra o si esce dalla page2 (INIT TOOL):
+// joystick e encoder disattivati. Tornando su page0 il Nextion ricarica i
+// valori di default (modo DRO, nessun asse selezionato), quindi ci si allinea.
+void resetMainPageState() {
+  isJoyMode = false;
+  joyPlaneZA = false;
+  currentAxis = '0';
+  portENTER_CRITICAL(&timerMux);
+  encoderCount = 0;
+  portEXIT_CRITICAL(&timerMux);
+}
+
 // INTERPRETE DEI DATI TRASMESSI DA LINUXCNC
 void parsePCData() {
   if (Serial.available() > 0) {
@@ -175,6 +200,17 @@ void parsePCData() {
     } else if (line.startsWith("SEL:")) {
       currentAxis = line.charAt(4);
       updateNextionUI();
+    } else if (line == "PAGE:MAIN") {
+      // INIT TOOL annullato o rifiutato da LinuxCNC: torna alla pagina principale
+      nextionGotoPage(NEXTION_MAIN_PAGE);
+      resetMainPageState();
+      delay(50);  // Attende il caricamento di page0
+      updateNextionUI();
+    } else if (line == "PAGE:TOOL") {
+      // Mandrino arrivato in posizione di cambio (o numero non valido): apre il keypad
+      resetMainPageState();
+      nextionGotoPage(NEXTION_TOOL_PAGE);
+      nextionSetTextStr("t0", "");
     }
   }
 }
@@ -478,13 +514,29 @@ void loop() {
 
 // --- TASK: NEXTION -> ESP32 -> PC ---
 bool expectingCmd = false;
+bool readingToolText = false;  // Dopo "#T": testo del keypad fino a ';'
+String toolText = "";
 
 void serialListenerTask(void* parameter) {
   for (;;) {
     while (Serial2.available()) {
       char rawChar = (char)Serial2.read();
       if (rawChar == '#') {
+        readingToolText = false;  // Un nuovo comando interrompe un testo incompleto
         expectingCmd = true;
+      } else if (readingToolText) {
+        if (rawChar == ';') {
+          // Enter sul keypad: il Nextion e' gia' tornato alla pagina principale
+          readingToolText = false;
+          Serial.print("TOOL:SET:");
+          Serial.println(toolText);
+          resetMainPageState();
+          vTaskDelay(50 / portTICK_PERIOD_MS);  // Attende il caricamento di page0
+          updateNextionUI();
+        } else if (rawChar >= ' ' && rawChar <= '~' && toolText.length() < TOOL_TEXT_MAX_LEN) {
+          // Solo caratteri stampabili: scarta eventuali codici di risposta del Nextion
+          toolText += rawChar;
+        }
       } else if (expectingCmd) {
         expectingCmd = false;
         char cmd = rawChar;
@@ -531,7 +583,22 @@ void serialListenerTask(void* parameter) {
         else if (cmd == '*') Serial.println("CMD:ZERO:ALL");
         else if (cmd == 'h') Serial.println("CMD:MACRO_1");
         else if (cmd == 'c') Serial.println("CMD:MACRO_2");
-        else if (cmd == 'd') Serial.println("CMD:MACRO_3");
+        else if (cmd == 'd') {
+          // INIT TOOL: LinuxCNC aprira' la page2 (PAGE:TOOL) quando il mandrino
+          // e' in posizione di cambio
+          Serial.println("CMD:INIT_TOOL");
+        }
+        else if (cmd == 'T') {
+          readingToolText = true;
+          toolText = "";
+        }
+        else if (cmd == 'K') {
+          // Indietro dal keypad senza confermare
+          Serial.println("TOOL:CANCEL");
+          resetMainPageState();
+          vTaskDelay(50 / portTICK_PERIOD_MS);
+          updateNextionUI();
+        }
         else if (cmd == 'f') Serial.println("CMD:MACRO_4");
       }
     }

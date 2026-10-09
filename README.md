@@ -99,10 +99,37 @@ Nota: in `custom.hal` il joystick per l'asse A è commentato; va abilitato se si
 | **Zero ALL** | `G10 L20 P0 X0 Y0 Z0` |
 | **Macro 1** | `G90 G53 G0 Z0`, poi `G90 G53 G1 X0 Y0 F2000`: va allo zero macchina. |
 | **Macro 2** | `G90 G53 G0 Z0`, poi `G90 G1 X0 Y0 F2000`: va sopra lo zero pezzo XY restando a Z macchina 0 (non scende a G54 Z0, così c'è spazio per il touch plate). |
-| **Macro 3** | `M6 T1`: cambio utensile con tastatura automatica (vedi `python/remap.py`). |
+| **INIT TOOL** | Va in posizione di cambio; all'arrivo LinuxCNC apre il keypad (page2) per il numero utensile, poi `M61 Qn` e misura sul tool sensor. Vedi [INIT TOOL](#init-tool-dal-pendant). |
 | **Macro 4** | `O<touch_plate> call`: esegue [probe/basic_probe/macros/touch_plate.ngc](probe/basic_probe/macros/touch_plate.ngc). Richiede un utensile misurato con TOUCH SENSOR o M6; partire al massimo `[PROBE] TOUCH_PLATE_MAXPROBE` mm (40) sopra il piattello. |
 
 Le macro e i comandi MANDRINO, MODE e HOME vengono eseguiti solo se la macchina è abilitata, senza E-Stop e con l'interprete fermo. I comandi MDI passano temporaneamente in modo MDI e poi tornano in MANUALE; durante l'attesa lo script continua a leggere l'E-Stop.
+
+#### INIT TOOL dal pendant
+
+Serve a montare e misurare il primo utensile, dichiarandone il numero dal display invece che con `M61 Qn`.
+
+1. Macchina accesa e in homing. Premi **INIT TOOL**: il mandrino sale a G53 Z0 e va in `[CHANGE_POSITION]`.
+2. Quando il mandrino è arrivato, LinuxCNC mostra su QtDragon il messaggio **CHANGE TOOL** e fa aprire al Nextion la page2 (keypad), tramite `PAGE:TOOL`.
+3. Monta l'utensile, scrivi il numero sul keypad (`5`, `T5`, `Q5` o `M61 Q5`) e premi **Enter**: il display torna alla pagina principale.
+4. `esp32_mpg.py` esegue `M61 Qn` e poi [tool_sensor.ngc](probe/basic_probe/macros/tool_sensor.ngc): il mandrino va sul sensore, misura l'utensile e scrive l'offset in tabella.
+
+- **Indietro** sul keypad annulla: la macchina resta in posizione di cambio e non viene dichiarato nessun utensile.
+- Se la macchina non è pronta o non è in homing, oppure il movimento viene interrotto (STOP, E-Stop), il keypad non si apre.
+- Se il numero non è valido il keypad si riapre; se l'utensile non è in tabella, `M61` fallisce e la misura non parte.
+- Un E-Stop durante l'attesa annulla la procedura.
+- Mentre il keypad è aperto joystick ed encoder sono disattivati; tornando alla pagina principale vanno riselezionati l'asse e il modo JOY.
+
+Lato Nextion (progetto `.HMI`) servono questi eventi:
+
+| Oggetto | Evento Touch Release |
+|---------|----------------------|
+| page0 `b8` (INIT TOOL) | solo `prints "#d",0` (la page2 la apre LinuxCNC) |
+| page2 Enter | `prints "#T",0`, `prints t0.txt,0`, `prints ";",0`, `t0.txt=""`, `page page0` |
+| page2 `b20` (Indietro) | `prints "#K",0`, `t0.txt=""`, `page page0` |
+
+I nomi delle pagine sono definiti in `NEXTION_MAIN_PAGE` e `NEXTION_TOOL_PAGE` nel firmware.
+
+Anche il cambio utensile `M6` nei programmi mostra su QtDragon il messaggio **CHANGE TOOL: monta Tn e premi CYCLE START** quando il mandrino è in posizione di cambio (vedi [python/remap.py](python/remap.py)).
 
 ### Interfaccia con `esp32_mpg.py`
 
@@ -135,7 +162,9 @@ Una riga di testo per messaggio, terminata da `\n`.
 | `CMD:SPINDLE_TOGGLE` / `CMD:MODE_TOGGLE` / `CMD:HOMEALL` | Mandrino, modo, homing |
 | `CMD:G53` … `CMD:G57` | Sistema di coordinate / visualizzazione DRO |
 | `CMD:ZERO:<X\|Y\|Z\|A\|ALL>` | Azzeramento assi |
-| `CMD:MACRO_1` … `CMD:MACRO_4` | Macro |
+| `CMD:MACRO_1` / `CMD:MACRO_2` / `CMD:MACRO_4` | Macro |
+| `CMD:INIT_TOOL` | Avvio INIT TOOL (posizione di cambio e attesa del numero utensile) |
+| `TOOL:SET:<testo>` / `TOOL:CANCEL` | Numero utensile dal keypad / keypad annullato |
 
 #### Protocollo seriale PC → ESP32
 
@@ -145,6 +174,7 @@ Una riga di testo per messaggio, terminata da `\n`.
 | `MOD:<MAN\|AUTO\|MDI>` | Modo macchina |
 | `OVR:F<n>%` | Feed override |
 | `SEL:<asse>` | Forza l'asse selezionato sull'encoder (`F` / `0` durante i programmi AUTO) |
+| `PAGE:MAIN` / `PAGE:TOOL` | Torna alla pagina principale (INIT TOOL annullato da E-Stop) / apre il keypad (mandrino in posizione di cambio, o numero non valido) |
 
 Il DRO viene aggiornato ogni 50 ms. Il valore mostrato è in coordinate pezzo (macchina − G5x − G92 − offset utensile), oppure in coordinate macchina dopo **G53**.
 
@@ -158,7 +188,8 @@ Il display invia `#` seguito da un carattere di comando:
 | `X` `Y` `Z` `A` | Selezione asse encoder | `w` `e` `r` `t` | G54 / G55 / G56 / G57 |
 | `F` | Encoder su feed override | `x` `y` `z` `a` | Zero X / Y / Z / A |
 | `0` | Encoder disattivato | `*` | Zero ALL |
-| `o` `i` `j` `k` `l` | Passo 0 / 0.01 / 0.1 / 1 / 10 | `h` `c` `d` `f` | Macro 1 / 2 / 3 / 4 |
+| `o` `i` `j` `k` `l` | Passo 0 / 0.01 / 0.1 / 1 / 10 | `h` `c` `f` | Macro 1 / 2 / 4 |
+| `d` | INIT TOOL | `T<testo>;` / `K` | Numero utensile dal keypad / Indietro |
 
 Per aggiungere un nuovo comando: assegnare un carattere libero nel progetto `.HMI`, aggiungere la riga `else if (cmd == '…') Serial.println("CMD:…");` in `serialListenerTask()` del firmware e gestire `CMD:…` in `process_serial_data()` di `esp32_mpg.py`.
 

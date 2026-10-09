@@ -68,7 +68,8 @@ def change_tool(self, **words):
         yield interpreter.INTERP_EXECUTE_FINISH
         
         # 3. Interazione Operatore
-        self.set_errormsg("CAMBIO UTENSILE: Inserisci utensile e premi AVVIA")
+        # Messaggio operatore su QtDragon (come un commento MSG)
+        emccanon.MESSAGE("CHANGE TOOL: monta T{} e premi CYCLE START".format(self.selected_tool))
         log_debug("M0: Macchina in pausa. In attesa del comando AVVIA/RESUME da operatore.")
         self.execute("M0")
         
@@ -117,7 +118,7 @@ def change_tool(self, **words):
                 self.execute("G90 G53 G0 Z0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 
-                self.set_errormsg("PROBE FALLITO. Controlla il sensore e premi AVVIA per riprovare.")
+                emccanon.MESSAGE("PROBE FALLITO. Controlla il sensore e premi CYCLE START per riprovare.")
                 self.execute("M0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
@@ -135,7 +136,7 @@ def change_tool(self, **words):
                 self.execute("G90 G53 G0 Z0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 
-                self.set_errormsg("PROBE FALLITO (Errore precisione). Controlla e premi AVVIA per riprovare.")
+                emccanon.MESSAGE("PROBE FALLITO (Errore precisione). Controlla e premi CYCLE START per riprovare.")
                 self.execute("M0")
                 yield interpreter.INTERP_EXECUTE_FINISH
                 attempt += 1
@@ -184,7 +185,7 @@ def change_tool(self, **words):
         # 7. Ripristino Mandrino
         if speed > 0:
             log_debug("Comando di riaccensione mandrino a {} RPM. Attesa 2 secondi...".format(speed))
-            self.set_errormsg("Riavvio mandrino a {} RPM...".format(speed))
+            emccanon.MESSAGE("Riavvio mandrino a {} RPM...".format(speed))
             self.execute("S{} M3".format(speed))
             self.execute("G4 P2")
             yield interpreter.INTERP_EXECUTE_FINISH
