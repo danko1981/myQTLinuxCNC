@@ -1,0 +1,15 @@
+# LinuxCNC / QtDragon: file di stato riscritti dalla macchina a ogni avvio
+qtdragon.var
+qtdragon.var.bak
+qtdragon.pref
+position.txt
+machine_log.dat
+mdi_history.dat
+*.log
+
+# Python compilato
+*.pyc
+__pycache__/
+
+# Risorse Qt generate da qtvcp all'avvio (da screen/qtdragon.qrc)
+/resources.py
