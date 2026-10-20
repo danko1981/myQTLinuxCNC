@@ -13,3 +13,11 @@ __pycache__/
 
 # Risorse Qt generate da qtvcp all'avvio (da screen/qtdragon.qrc)
 /resources.py
+
+# Simulatore (qtdragon_sim.ini): file di stato separati da quelli della macchina reale
+qtdragon_sim.var
+qtdragon_sim.var.bak
+qtdragon_sim.pref
+position_sim.txt
+machine_log_sim.dat
+mdi_history_sim.dat

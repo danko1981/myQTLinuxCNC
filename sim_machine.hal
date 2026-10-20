@@ -1,0 +1,33 @@
+# HAL di SIMULAZIONE (macchina virtuale), caricato SOLO da qtdragon_sim.ini.
+# La macchina reale usa qtdragonMac.hal: questo file non viene mai letto da qtdragon.ini.
+# Nessun hardware: niente hal_parport, niente stepgen, niente base-thread
+# (un base-thread a 20 us su una VM satura la CPU e blocca l'avvio su 'inihal').
+loadrt [KINS]KINEMATICS
+loadrt [EMCMOT]EMCMOT servo_period_nsec=[EMCMOT]SERVO_PERIOD num_joints=[KINS]JOINTS num_aio=13
+
+addf motion-command-handler servo-thread
+addf motion-controller servo-thread
+
+# Loopback posizione (motori simulati)
+net xpos-cmd joint.0.motor-pos-cmd => joint.0.motor-pos-fb
+net ypos-cmd joint.1.motor-pos-cmd => joint.1.motor-pos-fb
+net zpos-cmd joint.2.motor-pos-cmd => joint.2.motor-pos-fb
+
+# Mandrino (solo segnali, nessuna uscita fisica)
+net spindle-cmd-rpm     <= spindle.0.speed-out
+net spindle-cmd-rpm-abs <= spindle.0.speed-out-abs
+net spindle-cmd-rps     <= spindle.0.speed-out-rps
+net spindle-cmd-rps-abs <= spindle.0.speed-out-rps-abs
+net spindle-on          <= spindle.0.on
+
+# E-stop esterno simulato: sempre OK
+net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
+
+# Cambio utensile (come qtdragonMac.hal)
+net tool-change-loopback  iocontrol.0.tool-change  => iocontrol.0.tool-changed
+net tool-prepare-loopback iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
+
+# Sonda simulata: da un altro terminale, durante una tastatura (G38.x, M6, touch plate):
+#   halcmd sets probe-sim 1   (contatto)
+#   halcmd sets probe-sim 0   (rilascio)
+net probe-sim => motion.probe-input
