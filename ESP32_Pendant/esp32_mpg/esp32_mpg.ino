@@ -28,6 +28,10 @@
 // --- PAGINE NEXTION ---
 #define NEXTION_MAIN_PAGE "page0"  // Pagina principale (DRO e pulsanti)
 #define NEXTION_TOOL_PAGE "page2"  // Keypad per il numero utensile (INIT TOOL)
+#define NEXTION_AUTO_PAGE "page3"  // Pagina AUTO (esecuzione programma)
+#define PAGE_ID_MAIN 0             // Numeri inviati dagli eventi di caricamento pagina ("#p0", "#p2", "#p3")
+#define PAGE_ID_TOOL 2
+#define PAGE_ID_AUTO 3
 #define TOOL_TEXT_MAX_LEN 16       // Lunghezza massima del testo inviato dal keypad
 
 // --- COLORI NEXTION ---
@@ -44,7 +48,8 @@ volatile int lastEncoded = 0;
 long encoderAccumulator = 0;
 const int PULSES_PER_CLICK = 4;
 
-volatile char currentAxis = '0';
+volatile char currentAxis = '0';  // In page3: 'L' = scelta riga per RUN LINE, 'F' = feed override
+volatile int currentPage = PAGE_ID_MAIN;
 unsigned long sendtomega = 0;
 
 // VARIABILI PER E-STOP
@@ -124,12 +129,23 @@ void nextionSetColor(String objName, int color) {
   Serial2.write(0xFF);
 }
 
-void nextionGotoPage(const char* pageName) {
-  Serial2.print("page ");
-  Serial2.print(pageName);
+void nextionCmd(String cmd) {
+  Serial2.print(cmd);
   Serial2.write(0xFF);
   Serial2.write(0xFF);
   Serial2.write(0xFF);
+}
+
+// Pagina attiva: la comunica anche a LinuxCNC, che reinvia i dati della pagina
+void setCurrentPage(int pageId) {
+  currentPage = pageId;
+  Serial.print("PAGEID:");
+  Serial.println(pageId);
+}
+
+void nextionGotoPage(const char* pageName, int pageId) {
+  nextionCmd(String("page ") + pageName);
+  setCurrentPage(pageId);
 }
 
 void nextionSetVal(String objName, int val) {
@@ -143,6 +159,7 @@ void nextionSetVal(String objName, int val) {
 
 // --- GESTIONE GRAFICA UI ---
 void updateNextionUI() {
+  if (currentPage != PAGE_ID_MAIN) return;  // Gli oggetti tX..tA esistono solo in page0
   if (!isJoyMode) {
     // MODALITÀ WHEEL
     nextionSetColor("tX", (currentAxis == 'X') ? COLOR_WHITE : COLOR_GREEN);
@@ -180,37 +197,85 @@ void resetMainPageState() {
   portEXIT_CRITICAL(&timerMux);
 }
 
+// PAGE3: stato del programma da LinuxCNC (stessi colori degli eventi del progetto .HMI).
+// LinuxCNC e' l'unica fonte dello stato: vale anche per avvii da QtDragon o dai pulsanti fisici.
+void applyAutoState(String state) {
+  bool running = (state == "RUNNING");
+  bool paused = (state == "PAUSED");
+  bool stopped = !running && !paused;  // STOPPED o ESTOP
+
+  String label = (state == "ESTOP") ? String("E-STOP") : state;
+  nextionSetTextStr("t4", label);
+  nextionCmd(paused ? "t4.pco=63456" : "t4.pco=65535");
+  nextionCmd(stopped ? "t4.picc=5" : "t4.picc=6");
+  nextionSetVal("va0", stopped ? 0 : 1);
+
+  nextionSetVal("bt0", running ? 1 : 0);                      // START: premuto mentre gira
+  nextionCmd((running || state == "ESTOP") ? "tsw bt0,0" : "tsw bt0,1");
+  nextionSetVal("bt1", 0);                                    // STOP: attivo solo con programma in corso
+  nextionCmd(stopped ? "tsw bt1,0" : "tsw bt1,1");
+  nextionSetVal("bt2", paused ? 1 : 0);                       // PAUSE: premuto = in pausa
+  nextionCmd(stopped ? "tsw bt2,0" : "tsw bt2,1");
+}
+
 // INTERPRETE DEI DATI TRASMESSI DA LINUXCNC
 void parsePCData() {
   if (Serial.available() > 0) {
     String line = Serial.readStringUntil('\n');
     line.trim();
+    bool onAuto = (currentPage == PAGE_ID_AUTO);
     if (line.startsWith("POS:")) {
-      char axisChar = line.charAt(4);
-      String valStr = line.substring(6);
-      float newVal = valStr.toFloat();
-      String nextionObj = "t" + String(axisChar);
-      nextionSetText(nextionObj, newVal, 3);
+      // DRO: tX..tA in page0, tX_p3..tA_p3 in page3
+      if (currentPage == PAGE_ID_MAIN || onAuto) {
+        char axisChar = line.charAt(4);
+        String valStr = line.substring(6);
+        float newVal = valStr.toFloat();
+        String nextionObj = "t" + String(axisChar) + (onAuto ? "_p3" : "");
+        nextionSetText(nextionObj, newVal, 3);
+      }
     } else if (line.startsWith("MOD:")) {
-      String modeStr = line.substring(4);
-      nextionSetTextStr("tmode", modeStr);
+      if (currentPage != PAGE_ID_TOOL) nextionSetTextStr("tmode", line.substring(4));
     } else if (line.startsWith("OVR:")) {
-      String valStr = line.substring(4);  // Prende "F100%"
-      nextionSetTextStr("tF", valStr);    // Lo invia alla textbox
+      if (currentPage != PAGE_ID_TOOL) nextionSetTextStr("tF", line.substring(4));  // "F100%"
     } else if (line.startsWith("SEL:")) {
-      currentAxis = line.charAt(4);
+      char axis = line.charAt(4);
+      if (onAuto) currentAxis = (axis == '0') ? 'L' : axis;  // Fine programma: torna alla scelta riga
+      else currentAxis = axis;
       updateNextionUI();
     } else if (line == "PAGE:MAIN") {
       // INIT TOOL annullato o rifiutato da LinuxCNC: torna alla pagina principale
-      nextionGotoPage(NEXTION_MAIN_PAGE);
+      nextionGotoPage(NEXTION_MAIN_PAGE, PAGE_ID_MAIN);
       resetMainPageState();
       delay(50);  // Attende il caricamento di page0
       updateNextionUI();
     } else if (line == "PAGE:TOOL") {
       // Mandrino arrivato in posizione di cambio (o numero non valido): apre il keypad
       resetMainPageState();
-      nextionGotoPage(NEXTION_TOOL_PAGE);
+      nextionGotoPage(NEXTION_TOOL_PAGE, PAGE_ID_TOOL);
       nextionSetTextStr("t0", "");
+    } else if (line == "PAGE:AUTO") {
+      // Partenza di un programma: apre la pagina AUTO
+      resetMainPageState();
+      nextionGotoPage(NEXTION_AUTO_PAGE, PAGE_ID_AUTO);
+      currentAxis = 'L';
+    } else if (onAuto) {
+      // --- Contenuti della page3 ---
+      if (line.startsWith("ST:")) {
+        applyAutoState(line.substring(3));
+      } else if (line.startsWith("GL:") && line.length() >= 5) {
+        // Righe G-code: GL:0 precedente, GL:1 corrente/selezionata, GL:2 successiva
+        nextionSetTextStr("t" + String(line.charAt(3)), line.substring(5));
+      } else if (line.startsWith("MSG:")) {
+        nextionSetTextStr("t3", line.substring(4));
+      } else if (line.startsWith("OPT:")) {
+        nextionSetVal("bt5", line.charAt(4) == '1' ? 1 : 0);
+      } else if (line.startsWith("BLK:")) {
+        nextionSetVal("bt6", line.charAt(4) == '1' ? 1 : 0);
+      } else if (line.startsWith("SLD:F:")) {
+        nextionSetVal("h1", line.substring(6).toInt());
+      } else if (line.startsWith("SLD:S:")) {
+        nextionSetVal("h0", line.substring(6).toInt());
+      }
     }
   }
 }
@@ -516,12 +581,31 @@ void loop() {
 bool expectingCmd = false;
 bool readingToolText = false;  // Dopo "#T": testo del keypad fino a ';'
 String toolText = "";
+bool expectingPageId = false;  // Dopo "#p": numero della pagina appena caricata
+char sliderTarget = 0;         // Dopo "#V" (SPD) o "#W" (FED): 1 byte con il valore 0..100
 
 void serialListenerTask(void* parameter) {
   for (;;) {
     while (Serial2.available()) {
       char rawChar = (char)Serial2.read();
-      if (rawChar == '#') {
+      if (sliderTarget) {
+        // Valore binario dello slider (prints h0.val,1): puo' valere anche '#', va letto per primo
+        Serial.print("SLD:");
+        Serial.print(sliderTarget);
+        Serial.print(":");
+        Serial.println((uint8_t)rawChar);
+        sliderTarget = 0;
+      } else if (expectingPageId) {
+        expectingPageId = false;
+        if (rawChar >= '0' && rawChar <= '9') {
+          int pageId = rawChar - '0';
+          // Pagina caricata (anche da touch): joystick ed encoder ripartono da uno stato sicuro
+          resetMainPageState();
+          if (pageId == PAGE_ID_AUTO) currentAxis = 'L';
+          setCurrentPage(pageId);
+          updateNextionUI();
+        }
+      } else if (rawChar == '#') {
         readingToolText = false;  // Un nuovo comando interrompe un testo incompleto
         expectingCmd = true;
       } else if (readingToolText) {
@@ -532,6 +616,7 @@ void serialListenerTask(void* parameter) {
           Serial.println(toolText);
           resetMainPageState();
           vTaskDelay(50 / portTICK_PERIOD_MS);  // Attende il caricamento di page0
+          setCurrentPage(PAGE_ID_MAIN);
           updateNextionUI();
         } else if (rawChar >= ' ' && rawChar <= '~' && toolText.length() < TOOL_TEXT_MAX_LEN) {
           // Solo caratteri stampabili: scarta eventuali codici di risposta del Nextion
@@ -561,7 +646,8 @@ void serialListenerTask(void* parameter) {
         }
         // SELEZIONE ASSI ENCODER - F PER IL FEED OVERRIDE
         else if (cmd == 'X' || cmd == 'Y' || cmd == 'Z' || cmd == 'A' || cmd == 'F' || cmd == '0') {
-          currentAxis = cmd;
+          // In page3 togliere F (tF) riporta l'encoder sulla scelta della riga
+          currentAxis = (cmd == '0' && currentPage == PAGE_ID_AUTO) ? 'L' : cmd;
           portENTER_CRITICAL(&timerMux);
           encoderCount = 0;
           portEXIT_CRITICAL(&timerMux);
@@ -597,9 +683,21 @@ void serialListenerTask(void* parameter) {
           Serial.println("TOOL:CANCEL");
           resetMainPageState();
           vTaskDelay(50 / portTICK_PERIOD_MS);
+          setCurrentPage(PAGE_ID_MAIN);
           updateNextionUI();
         }
         else if (cmd == 'f') Serial.println("CMD:MACRO_4");
+        // --- PAGE3 (AUTO) ---
+        else if (cmd == 'S') Serial.println("CMD:CYCLE_START");
+        else if (cmd == 'E') Serial.println("CMD:CYCLE_STOP");
+        else if (cmd == 'P') Serial.println("CMD:PAUSE_TOGGLE");
+        else if (cmd == 'N') Serial.println("CMD:STEP");
+        else if (cmd == 'R') Serial.println("CMD:RUN_LINE");
+        else if (cmd == 'O') Serial.println("CMD:OPT_STOP");
+        else if (cmd == 'B') Serial.println("CMD:BLK_DEL");
+        else if (cmd == 'V') sliderTarget = 'S';  // Slider SPD (h0)
+        else if (cmd == 'W') sliderTarget = 'F';  // Slider FED (h1)
+        else if (cmd == 'p') expectingPageId = true;
       }
     }
     vTaskDelay(10 / portTICK_PERIOD_MS);

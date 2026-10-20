@@ -131,6 +131,107 @@ I nomi delle pagine sono definiti in `NEXTION_MAIN_PAGE` e `NEXTION_TOOL_PAGE` n
 
 Anche il cambio utensile `M6` nei programmi mostra su QtDragon il messaggio **CHANGE TOOL: monta Tn e premi CYCLE START** quando il mandrino è in posizione di cambio (vedi [python/remap.py](python/remap.py)).
 
+#### Pagina AUTO (page3)
+
+Si apre da sola quando parte un programma (da pendant, QtDragon o pulsanti fisici) e si può aprire e chiudere a mano toccando la casella del modo (`tmode`). A fine programma resta aperta. Lo stato mostrato viene sempre da LinuxCNC.
+
+| Elemento | Funzione |
+|----------|----------|
+| `t4` | Stato: **RUNNING**, **PAUSED** (lampeggia), **STOPPED**, **E-STOP** |
+| `tX_p3` … `tA_p3` | DRO, come in page0 |
+| `t0` / `t1` / `t2` | Riga G-code precedente / corrente / successiva, con numero di riga. Durante il programma `t1` è la riga in esecuzione; a programma fermo è la riga scelta per RUN LINE |
+| `t3` | Messaggi operatore (CHANGE TOOL dell'M6, probe fallito, INIT TOOL, errori del pendant); senza messaggi mostra il nome del file |
+| `h0` SPD / `h1` FED | Override mandrino (da `MIN_SPINDLE_0_OVERRIDE` a `MAX_SPINDLE_0_OVERRIDE`) e feed (da 0 a `MAX_FEED_OVERRIDE`), letti da `[DISPLAY]` in `qtdragon.ini`. Seguono anche le modifiche fatte da QtDragon o dall'encoder |
+| **START** | Avvia il programma o riprende da una pausa (anche la pausa dell'M6) |
+| **STOP** | Abort del programma e mandrino spento |
+| **PAUSE** | Pausa completa (come il pulsante giallo); premuto di nuovo riprende come START |
+| **STEP** | Da fermo avvia il programma una riga alla volta; in pausa esegue la riga successiva |
+| **RUN LINE** | Avvia il programma dalla riga mostrata in `t1` |
+| **OPT STOP** / **BLK DEL** | Attiva/disattiva l'arresto opzionale (`M1`) e la cancellazione blocchi (`/`) |
+
+**Encoder in page3:** a programma fermo scorre le righe (`t1`) per scegliere da dove ripartire con RUN LINE; dopo uno STOP propone l'ultima riga eseguita. Durante il programma regola il feed override; toccando `tF` si passa dall'una all'altra funzione.
+
+##### PAUSE: pausa e ripresa
+
+PAUSE ha doppia funzione e decide in base allo stato reale di LinuxCNC:
+
+- **programma in esecuzione:** pausa completa, come il pulsante giallo: il programma si ferma, gli RPM vengono salvati e dopo 1 s il mandrino si spegne;
+- **programma in pausa:** ripresa, come START. Se la pausa aveva spento il mandrino, lo riaccende agli RPM salvati, attende 3 s e riprende. Vale anche per la pausa dell'M6 e per `M1`.
+
+Durante le attese di 1 s e 3 s viene accettato solo STOP (l'E-Stop è sempre attivo); gli altri comandi, compreso un secondo tocco su PAUSE, vengono ignorati. Alla fine dell'attesa la sequenza ricontrolla lo stato: riprende solo se il programma è ancora in pausa e spegne il mandrino solo se è davvero in pausa. Così un doppio tocco non può far ripartire il programma con il mandrino spento.
+
+##### STEP, RUN LINE, OPT STOP e BLK DEL
+
+Sono funzioni standard di LinuxCNC (le stesse di QtDragon) per controllare come viene eseguito il programma.
+
+**STEP (esecuzione riga per riga)**: ogni pressione esegue la riga successiva del programma e poi si ferma.
+- Serve per provare un programma nuovo con calma, per esempio il primo avvicinamento al pezzo o la prima discesa in Z, controllando ogni movimento prima di dare il successivo.
+- A programma fermo avvia il programma in modalità STEP; in pausa esegue la riga successiva. Per tornare all'esecuzione normale premi START o PAUSE.
+
+**RUN LINE (avvio da una riga)**: avvia il programma dalla riga scelta invece che dall'inizio.
+- Serve per riprendere un lavoro interrotto (fresa rotta, STOP, mancanza di corrente) senza rifare le parti già lavorate.
+- A programma fermo la riga si sceglie con l'encoder ed è quella mostrata in `t1`; dopo uno STOP viene proposta l'ultima riga eseguita.
+
+> **Attenzione con RUN LINE:** LinuxCNC salta le righe prima di quella scelta, quindi cambio utensile, accensione del mandrino e quote di sicurezza scritti all'inizio del programma non vengono eseguiti. Prima di avviare da una riga a metà programma porta la macchina in una posizione sicura e accendi il mandrino.
+
+**OPT STOP (arresto opzionale, `M1`)**: decide se il comando `M1` nel programma ferma la macchina.
+- Attivo: a ogni `M1` il programma va in pausa come con `M0` e riparte con START (o PAUSE). Disattivo: gli `M1` vengono ignorati.
+- Serve per mettere nel programma punti di controllo da usare solo quando servono, per esempio misurare il pezzo dopo la sgrossatura o pulire i trucioli. In Fusion 360 si può inserire un `M1` tra un'operazione e l'altra.
+
+**BLK DEL (cancellazione blocchi, `/`)**: decide se le righe che iniziano con `/` vengono eseguite.
+- Attivo: le righe con `/` davanti vengono saltate. Disattivo: vengono eseguite normalmente.
+- Serve per avere parti di programma escludibili senza modificare il file, per esempio una passata di finitura in più, un ciclo di pulizia o il refrigerante (`/M8`) da usare solo su alcuni materiali.
+
+OPT STOP e BLK DEL restano premuti quando la funzione è attiva; il loro stato è quello reale di LinuxCNC, quindi coincide con QtDragon. Se nei programmi non ci sono `M1` o righe con `/`, non hanno effetto.
+
+##### Abilitazione dei pulsanti
+
+Lo stato dei pulsanti non è gestito dal Nextion ma da `esp32_mpg.py` e dall'ESP32:
+
+1. `esp32_mpg.py` legge lo stato reale da LinuxCNC e invia `ST:RUNNING`, `ST:PAUSED`, `ST:STOPPED` o `ST:ESTOP`: all'apertura della page3, a ogni cambio di stato (controllo ogni 200 ms) e subito dopo ogni pulsante della page3. Vale anche per programmi avviati da QtDragon o dai pulsanti fisici.
+2. L'ESP32 (`applyAutoState()` nel firmware) applica lo stato al display: abilita o disabilita i pulsanti con `tsw`, imposta il loro `.val` e aggiorna testo e colori di `t4` e `va0`.
+
+| Stato | START (`bt0`) | STOP (`bt1`) | PAUSE (`bt2`) |
+|-------|---------------|--------------|---------------|
+| STOPPED | abilitato | disabilitato | disabilitato |
+| RUNNING | disabilitato (premuto) | abilitato | abilitato |
+| PAUSED | abilitato | abilitato | abilitato (premuto) |
+| E-STOP | disabilitato | disabilitato | disabilitato |
+
+Il Nextion fa da solo solo due cose: i `tsw bt1,0` / `tsw bt2,0` del Postinitialize di page3, sovrascritti dal primo `ST:`, e il cambio di stato dei pulsanti dual-state al tocco, che `esp32_mpg.py` corregge subito.
+
+`esp32_mpg.py` inoltre verifica ogni comando ricevuto, indipendentemente da come appare il pulsante: se il display fosse fuori sincrono, un comando non valido viene ignorato.
+
+| Comando | Accettato solo se |
+|---------|-------------------|
+| START | senza E-Stop e macchina abilitata; avvia se fermo con un programma caricato, riprende se in pausa |
+| PAUSE | programma in esecuzione (pausa) o in pausa (ripresa) |
+| STEP | senza E-Stop, macchina abilitata e programma caricato; programma fermo o in pausa |
+| RUN LINE | programma fermo, macchina pronta e programma caricato; altrimenti messaggio in `t3` |
+| OPT STOP / BLK DEL | sempre |
+| tutti tranne STOP | non durante le attese di pausa completa o ripresa con riavvio mandrino |
+
+STEP, RUN LINE, OPT STOP e BLK DEL non vengono disabilitati sul display: li protegge solo questo controllo.
+
+Gli errori di LinuxCNC (per esempio limiti superati) restano solo su QtDragon: lo script non legge il canale errori per non sottrarli alla GUI.
+
+Eventi da impostare nel progetto `.HMI`:
+
+| Oggetto | Evento | Codice |
+|---------|--------|--------|
+| page0, page2, page3 | Postinitialize | rispettivamente `prints "#p0",0`, `prints "#p2",0`, `prints "#p3",0` (in page3 dopo le righe `tsw` esistenti) |
+| page3 `bt0` START | Touch Release | `prints "#S",0` (la vecchia logica locale di `bt0`, `bt1` e `bt2` è commentata: lo stato lo gestisce LinuxCNC) |
+| page3 `bt1` STOP | Touch Release | `prints "#E",0` |
+| page3 `bt2` PAUSE | Touch Release | `prints "#P",0` |
+| page3 `bt3` STEP | Touch Release | `prints "#N",0` |
+| page3 `bt4` RUN LINE | Touch Release | `prints "#R",0` |
+| page3 `bt5` OPT STOP | Touch Release | `prints "#O",0` |
+| page3 `bt6` BLK DEL | Touch Release | `prints "#B",0` |
+| page3 `h0` SPD | Touch Release | `prints "#V",0` e `prints h0.val,1` (slider da 0 a 100) |
+| page3 `h1` FED | Touch Release | `prints "#W",0` e `prints h1.val,1` (slider da 0 a 100) |
+
+`tmode` (`page page0`), `tF` e il timer `tm0` restano come sono. Il nome della pagina è definito in `NEXTION_AUTO_PAGE` nel firmware.
+
 ### Interfaccia con `esp32_mpg.py`
 
 #### Pin HAL del componente `esp_mpg`
@@ -165,6 +266,10 @@ Una riga di testo per messaggio, terminata da `\n`.
 | `CMD:MACRO_1` / `CMD:MACRO_2` / `CMD:MACRO_4` | Macro |
 | `CMD:INIT_TOOL` | Avvio INIT TOOL (posizione di cambio e attesa del numero utensile) |
 | `TOOL:SET:<testo>` / `TOOL:CANCEL` | Numero utensile dal keypad / keypad annullato |
+| `PAGEID:<n>` | Pagina caricata sul Nextion (0, 2, 3): LinuxCNC reinvia i dati di quella pagina |
+| `CMD:PAUSE_TOGGLE` / `CMD:STEP` / `CMD:RUN_LINE` / `CMD:OPT_STOP` / `CMD:BLK_DEL` | Pulsanti della page3 (START e STOP usano `CMD:CYCLE_START` / `CMD:CYCLE_STOP`) |
+| `SLD:<S\|F>:<0-100>` | Slider SPD / FED della page3 |
+| `JOG:L:<scatti>` | Encoder in page3 a programma fermo: scelta della riga per RUN LINE |
 
 #### Protocollo seriale PC → ESP32
 
@@ -175,6 +280,14 @@ Una riga di testo per messaggio, terminata da `\n`.
 | `OVR:F<n>%` | Feed override |
 | `SEL:<asse>` | Forza l'asse selezionato sull'encoder (`F` / `0` durante i programmi AUTO) |
 | `PAGE:MAIN` / `PAGE:TOOL` | Torna alla pagina principale (INIT TOOL annullato da E-Stop) / apre il keypad (mandrino in posizione di cambio, o numero non valido) |
+| `PAGE:AUTO` | Apre la pagina AUTO (partenza di un programma) |
+| `ST:<RUNNING\|PAUSED\|STOPPED\|ESTOP>` | Stato del programma per la page3 (`t4`, START/STOP/PAUSE) |
+| `GL:<0\|1\|2>:<testo>` | Righe G-code precedente / corrente / successiva (`t0`..`t2`) |
+| `MSG:<testo>` | Messaggio operatore o nome del file (`t3`) |
+| `OPT:<0\|1>` / `BLK:<0\|1>` | Stato di OPT STOP (`bt5`) e BLK DEL (`bt6`) |
+| `SLD:<S\|F>:<0-100>` | Posizione degli slider SPD (`h0`) e FED (`h1`) |
+
+I messaggi della page3 vengono inviati solo quando la page3 è aperta, al massimo ogni 200 ms e solo se cambiano.
 
 Il DRO viene aggiornato ogni 50 ms. Il valore mostrato è in coordinate pezzo (macchina − G5x − G92 − offset utensile), oppure in coordinate macchina dopo **G53**.
 
@@ -190,6 +303,9 @@ Il display invia `#` seguito da un carattere di comando:
 | `0` | Encoder disattivato | `*` | Zero ALL |
 | `o` `i` `j` `k` `l` | Passo 0 / 0.01 / 0.1 / 1 / 10 | `h` `c` `f` | Macro 1 / 2 / 4 |
 | `d` | INIT TOOL | `T<testo>;` / `K` | Numero utensile dal keypad / Indietro |
+| `p<n>` | Pagina caricata (`p0`, `p2`, `p3`) | `S` `E` `P` | START / STOP / PAUSE (page3) |
+| `N` `R` | STEP / RUN LINE (page3) | `O` `B` | OPT STOP / BLK DEL (page3) |
+| `V<byte>` | Slider SPD, 1 byte 0..100 | `W<byte>` | Slider FED, 1 byte 0..100 |
 
 Per aggiungere un nuovo comando: assegnare un carattere libero nel progetto `.HMI`, aggiungere la riga `else if (cmd == '…') Serial.println("CMD:…");` in `serialListenerTask()` del firmware e gestire `CMD:…` in `process_serial_data()` di `esp32_mpg.py`.
 
