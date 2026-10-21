@@ -128,11 +128,17 @@ py_message = ""                 # Messaggio operatore generato da questo script
 py_message_until = 0            # 0 = finche' non viene cancellato
 gcode_cache = {'path': None, 'mtime': None, 'lines': []}
 
+# Modo macchina e pagine Nextion: page3 = AUTO, page0 = MANUALE/MDI
+last_task_mode = None           # Ultimo modo visto, per riconoscere i cambi di modo
+last_sent_view = None           # Ultimo VIEW inviato (DRO assoluto/WCS e sistema attivo)
+WCS_NAMES = ["G53", "G54", "G55", "G56", "G57", "G58", "G59", "G59.1", "G59.2", "G59.3"]
+
 def force_refresh_all():
-    global last_sent_pos, last_sent_mode, last_sent_feed_override, manual_spindle_paused
+    global last_sent_pos, last_sent_mode, last_sent_feed_override, manual_spindle_paused, last_sent_view
     last_sent_pos = {'X': -999999.0, 'Y': -999999.0, 'Z': -999999.0, 'A': -999999.0}
-    last_sent_mode = -1 
+    last_sent_mode = -1
     last_sent_feed_override = -1
+    last_sent_view = None
     manual_spindle_paused = False
 
 def is_machine_idle_and_ready():
@@ -311,6 +317,24 @@ def ensure_auto_mode():
         emc.mode(linuxcnc.MODE_AUTO)
         emc.wait_complete()
 
+def request_task_mode(mode):
+    # Cambio modo chiesto dal Nextion (tmode): solo a interprete fermo, perche'
+    # LinuxCNC non permette di uscire da AUTO durante un programma
+    stat.poll()
+    if stat.task_mode == mode or stat.interp_state != linuxcnc.INTERP_IDLE: return
+    emc.mode(mode)
+    emc.wait_complete()
+
+def goto_esp_page(msg, page_id):
+    # PAGE:AUTO / PAGE:MAIN: la pagina viene registrata subito (il PAGEID di conferma
+    # arriva dopo), cosi' due controlli nello stesso ciclo non la riaprono due volte
+    global esp_page
+    send_to_esp(msg)
+    esp_page = page_id
+
+def wcs_name(index):
+    return WCS_NAMES[index] if 0 <= index < len(WCS_NAMES) else "G5?"
+
 # ==========================================
 # ELABORAZIONE SERIALE E COMANDI (CUORE DEL SISTEMA)
 # ==========================================
@@ -425,6 +449,14 @@ def process_serial_data():
                 except ValueError: continue
                 dprint("Nextion: pagina {} attiva".format(esp_page))
                 force_refresh_all()
+                # Pagina aperta dal Nextion (tmode): page3 porta la macchina in AUTO, page0
+                # la riporta in MANUALE (in AUTO l'encoder non muove gli assi)
+                if esp_page == 3:
+                    request_task_mode(linuxcnc.MODE_AUTO)
+                elif esp_page == 0:
+                    stat.poll()
+                    if stat.task_mode == linuxcnc.MODE_AUTO:
+                        request_task_mode(linuxcnc.MODE_MANUAL)
                 if esp_page == 3:
                     stat.poll()
                     # Encoder: override feed durante il programma, scelta riga a programma fermo
@@ -577,7 +609,10 @@ def process_serial_data():
                             emc.mode(linuxcnc.MODE_MANUAL); emc.wait_complete()
                         emc.home(-1)
                 elif cmd_part == "G53":
-                    view_abs_mode = True; force_refresh_all() 
+                    view_abs_mode = True; force_refresh_all()
+                elif cmd_part == "VIEW_TOGGLE":
+                    # Page3 bt7 (ABS): DRO assoluto <-> sistema di coordinate attivo, senza cambiarlo
+                    view_abs_mode = not view_abs_mode; force_refresh_all()
                 elif cmd_part in ["G54", "G55", "G56", "G57", "G58", "G59"]:
                     view_abs_mode = False; send_mdi(cmd_part); force_refresh_all() 
                 elif cmd_part == "ZERO":
@@ -669,6 +704,7 @@ def process_serial_data():
 def update_esp_dros():
     global last_send_time, last_sent_pos, ser, view_abs_mode, last_sent_mode
     global last_sent_feed_override, last_interp_state, selected_line, last_motion_line
+    global last_task_mode, last_sent_view
     if ser is None: return
         
     current_time = time.time()
@@ -690,7 +726,7 @@ def update_esp_dros():
                     dprint("STATO: Esecuzione G-Code. Blocco Nextion (SEL:F).")
                     # Apre la pagina AUTO (non interrompe il keypad dell'INIT TOOL)
                     if esp_page not in (2, 3):
-                        send_to_esp("PAGE:AUTO")
+                        goto_esp_page("PAGE:AUTO", 3)
 
             elif current_state == linuxcnc.INTERP_IDLE and last_interp_state in [linuxcnc.INTERP_READING, linuxcnc.INTERP_WAITING, linuxcnc.INTERP_PAUSED]:
                 if current_mode == linuxcnc.MODE_AUTO:
@@ -703,6 +739,22 @@ def update_esp_dros():
             if current_mode == linuxcnc.MODE_AUTO and current_state != linuxcnc.INTERP_IDLE and stat.motion_line > 0:
                 last_motion_line = stat.motion_line
             last_interp_state = current_state
+
+            # -------------------------------------------------------------
+            # PAGINA NEXTION SEGUE IL MODO MACCHINA
+            # Qualunque passaggio in AUTO (pulsante blu, QtDragon, CYCLE START, tmode)
+            # apre la page3; uscendo da AUTO la page3 torna alla page0.
+            # Il keypad dell'INIT TOOL (page2) non viene mai interrotto.
+            # -------------------------------------------------------------
+            if last_task_mode is not None and current_mode != last_task_mode:
+                if current_mode == linuxcnc.MODE_AUTO:
+                    if esp_page not in (2, 3) and not waiting_tool:
+                        dprint("MODALITA: AUTO. Apertura page3.")
+                        goto_esp_page("PAGE:AUTO", 3)
+                elif last_task_mode == linuxcnc.MODE_AUTO and esp_page == 3:
+                    dprint("MODALITA: uscita da AUTO. Ritorno a page0.")
+                    goto_esp_page("PAGE:MAIN", 0)
+            last_task_mode = current_mode
 
             # Sblocco di sicurezza se usciamo in MANUALE (ignorato se proveniamo da MDI)
             if current_mode == linuxcnc.MODE_MANUAL and last_sent_mode != linuxcnc.MODE_MANUAL:
@@ -728,6 +780,12 @@ def update_esp_dros():
                 msg = "MOD:" + mod_str + "\n"
                 ser.write(msg.encode('utf-8'))
                 last_sent_mode = current_mode
+
+            # Visualizzazione DRO: assoluta (G53) o nel sistema di coordinate attivo
+            view_msg = "VIEW:{}:{}".format("1" if view_abs_mode else "0", wcs_name(stat.g5x_index))
+            if view_msg != last_sent_view:
+                send_to_esp(view_msg)
+                last_sent_view = view_msg
 
             # -------------------------------------------------------------
             # CALCOLO E INVIO DELLE POSIZIONI ASSI

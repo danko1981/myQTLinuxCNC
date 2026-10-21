@@ -57,7 +57,7 @@ Il pulsante **blu** funziona anche da **SHIFT**: tenendolo premuto, gli altri pu
 
 | Pulsante | Pressione semplice | Con SHIFT (blu tenuto premuto) |
 |----------|--------------------|--------------------------------|
-| **Blu** | Click breve (< 400 ms): cambia modo MANUALE → AUTO → MDI → MANUALE | – |
+| **Blu** | Click breve (< 400 ms): cambia modo MANUALE → AUTO → MDI → MANUALE; in AUTO il Nextion apre la [pagina AUTO](#pagina-auto-page3) | – |
 | **Verde** | **CYCLE START**: avvia il file caricato oppure riprende da una pausa (anche dalla pausa `M0` del cambio utensile M6) | **HOME ALL**: homing di tutti gli assi |
 | **Giallo** | **PAUSA COMPLETA**: salva gli RPM, mette in pausa il programma e dopo 1 s spegne il mandrino | **PAUSA SEMPLICE**: pausa senza spegnere il mandrino |
 | **Rosso** | **STOP**: abort del programma e mandrino spento | **MANDRINO ON/OFF**: `M3 S12000` / `M5` (solo a macchina ferma) |
@@ -133,17 +133,23 @@ Anche il cambio utensile `M6` nei programmi mostra su QtDragon il messaggio **CH
 
 #### Pagina AUTO (page3)
 
-Si apre da sola quando parte un programma (da pendant, QtDragon o pulsanti fisici) e si può aprire e chiudere a mano toccando la casella del modo (`tmode`). A fine programma resta aperta. Lo stato mostrato viene sempre da LinuxCNC.
+La page3 corrisponde al modo **AUTO** della macchina, la page0 ai modi MANUALE e MDI:
+
+- **Il Nextion segue la macchina:** a ogni passaggio in AUTO si apre la page3, qualunque sia la causa: pulsante blu, QtDragon (anche caricando un file), CYCLE START, partenza di un programma. Uscendo da AUTO (per esempio pulsante blu AUTO → MDI, o jog da QtDragon) la page3 torna alla page0. Il keypad dell'INIT TOOL (page2) non viene mai interrotto.
+- **La macchina segue il Nextion:** toccando `tmode` in page0 si apre la page3 e la macchina passa in AUTO; toccando `tmode` in page3 si torna alla page0 e la macchina passa in MANUALE, così l'encoder torna a muovere gli assi. Il cambio di modo avviene solo a interprete fermo: durante un programma la page0 si può aprire per consultarla, ma la macchina resta in AUTO.
+
+A fine programma la page3 resta aperta. Lo stato mostrato viene sempre da LinuxCNC.
 
 | Elemento | Funzione |
 |----------|----------|
 | `t4` | Stato: **RUNNING**, **PAUSED** (lampeggia), **STOPPED**, **E-STOP** |
 | `tX_p3` … `tA_p3` | DRO, come in page0 |
+| `bt7` ABS / `t5` | `bt7` premuto: DRO in coordinate assolute (macchina), `t5.picc=5`. `bt7` rilasciato: DRO nel sistema di coordinate attivo, `t5.picc=6`. `t5` mostra sempre il sistema attivo (`G54`…`G59.3`). Il sistema attivo non cambia; l'impostazione vale anche per il DRO della page0, dove `bt0` (G53) e `bt1`…`bt4` (G54…G57) si allineano |
 | `t0` / `t1` / `t2` | Riga G-code precedente / corrente / successiva, con numero di riga. Durante il programma `t1` è la riga in esecuzione; a programma fermo è la riga scelta per RUN LINE |
 | `t3` | Messaggi operatore (CHANGE TOOL dell'M6, probe fallito, INIT TOOL, errori del pendant); senza messaggi mostra il nome del file |
 | `h0` SPD / `h1` FED | Override mandrino (da `MIN_SPINDLE_0_OVERRIDE` a `MAX_SPINDLE_0_OVERRIDE`) e feed (da 0 a `MAX_FEED_OVERRIDE`), letti da `[DISPLAY]` in `qtdragon.ini`. Seguono anche le modifiche fatte da QtDragon o dall'encoder |
 | **START** | Avvia il programma o riprende da una pausa (anche la pausa dell'M6) |
-| **STOP** | Abort del programma e mandrino spento |
+| **STOP** | Abort del programma e mandrino spento. A macchina ferma resta rosso (premuto) |
 | **PAUSE** | Pausa completa (come il pulsante giallo); premuto di nuovo riprende come START |
 | **STEP** | Da fermo avvia il programma una riga alla volta; in pausa esegue la riga successiva |
 | **RUN LINE** | Avvia il programma dalla riga mostrata in `t1` |
@@ -193,10 +199,10 @@ Lo stato dei pulsanti non è gestito dal Nextion ma da `esp32_mpg.py` e dall'ESP
 
 | Stato | START (`bt0`) | STOP (`bt1`) | PAUSE (`bt2`) |
 |-------|---------------|--------------|---------------|
-| STOPPED | abilitato | disabilitato | disabilitato |
+| STOPPED | abilitato | disabilitato (premuto, rosso) | disabilitato |
 | RUNNING | disabilitato (premuto) | abilitato | abilitato |
 | PAUSED | abilitato | abilitato | abilitato (premuto) |
-| E-STOP | disabilitato | disabilitato | disabilitato |
+| E-STOP | disabilitato | disabilitato (premuto, rosso) | disabilitato |
 
 Il Nextion fa da solo solo due cose: i `tsw bt1,0` / `tsw bt2,0` del Postinitialize di page3, sovrascritti dal primo `ST:`, e il cambio di stato dei pulsanti dual-state al tocco, che `esp32_mpg.py` corregge subito.
 
@@ -229,8 +235,9 @@ Eventi da impostare nel progetto `.HMI`:
 | page3 `bt6` BLK DEL | Touch Release | `prints "#B",0` |
 | page3 `h0` SPD | Touch Release | `prints "#V",0` e `prints h0.val,1` (slider da 0 a 100) |
 | page3 `h1` FED | Touch Release | `prints "#W",0` e `prints h1.val,1` (slider da 0 a 100) |
+| page3 `bt7` ABS (dual-state) | Touch Release | `prints "#q",0`: in page3 il firmware lo traduce in `CMD:VIEW_TOGGLE` invece di `CMD:G53` |
 
-`tmode` (`page page0`), `tF` e il timer `tm0` restano come sono. Il nome della pagina è definito in `NEXTION_AUTO_PAGE` nel firmware.
+`tmode` (`page page0` in page3, `page page3` in page0), `tF` e il timer `tm0` restano come sono: il cambio di modo macchina lo fa `esp32_mpg.py` quando riceve il `PAGEID`. Il nome della pagina è definito in `NEXTION_AUTO_PAGE` nel firmware.
 
 ### Interfaccia con `esp32_mpg.py`
 
@@ -262,11 +269,12 @@ Una riga di testo per messaggio, terminata da `\n`.
 | `CMD:CYCLE_START` / `CMD:CYCLE_PAUSE_FULL` / `CMD:CYCLE_PAUSE` / `CMD:CYCLE_STOP` | Controllo ciclo |
 | `CMD:SPINDLE_TOGGLE` / `CMD:MODE_TOGGLE` / `CMD:HOMEALL` | Mandrino, modo, homing |
 | `CMD:G53` … `CMD:G57` | Sistema di coordinate / visualizzazione DRO |
+| `CMD:VIEW_TOGGLE` | `bt7` ABS della page3: alterna DRO assoluto / sistema attivo, senza cambiare il sistema |
 | `CMD:ZERO:<X\|Y\|Z\|A\|ALL>` | Azzeramento assi |
 | `CMD:MACRO_1` / `CMD:MACRO_2` / `CMD:MACRO_4` | Macro |
 | `CMD:INIT_TOOL` | Avvio INIT TOOL (posizione di cambio e attesa del numero utensile) |
 | `TOOL:SET:<testo>` / `TOOL:CANCEL` | Numero utensile dal keypad / keypad annullato |
-| `PAGEID:<n>` | Pagina caricata sul Nextion (0, 2, 3): LinuxCNC reinvia i dati di quella pagina |
+| `PAGEID:<n>` | Pagina caricata sul Nextion (0, 2, 3): LinuxCNC reinvia i dati di quella pagina; con page3 passa in AUTO, con page0 da AUTO passa in MANUALE (solo a interprete fermo) |
 | `CMD:PAUSE_TOGGLE` / `CMD:STEP` / `CMD:RUN_LINE` / `CMD:OPT_STOP` / `CMD:BLK_DEL` | Pulsanti della page3 (START e STOP usano `CMD:CYCLE_START` / `CMD:CYCLE_STOP`) |
 | `SLD:<S\|F>:<0-100>` | Slider SPD / FED della page3 |
 | `JOG:L:<scatti>` | Encoder in page3 a programma fermo: scelta della riga per RUN LINE |
@@ -279,8 +287,9 @@ Una riga di testo per messaggio, terminata da `\n`.
 | `MOD:<MAN\|AUTO\|MDI>` | Modo macchina |
 | `OVR:F<n>%` | Feed override |
 | `SEL:<asse>` | Forza l'asse selezionato sull'encoder (`F` / `0` durante i programmi AUTO) |
-| `PAGE:MAIN` / `PAGE:TOOL` | Torna alla pagina principale (INIT TOOL annullato da E-Stop) / apre il keypad (mandrino in posizione di cambio, o numero non valido) |
-| `PAGE:AUTO` | Apre la pagina AUTO (partenza di un programma) |
+| `PAGE:MAIN` / `PAGE:TOOL` | Torna alla pagina principale (INIT TOOL annullato da E-Stop, uscita dal modo AUTO) / apre il keypad (mandrino in posizione di cambio, o numero non valido) |
+| `PAGE:AUTO` | Apre la pagina AUTO (passaggio in modo AUTO o partenza di un programma) |
+| `VIEW:<0\|1>:<G5x>` | DRO nel sistema attivo (`0`) o assoluto (`1`) e sistema attivo: `bt7`/`t5` in page3, `bt0`…`bt4` in page0 |
 | `ST:<RUNNING\|PAUSED\|STOPPED\|ESTOP>` | Stato del programma per la page3 (`t4`, START/STOP/PAUSE) |
 | `GL:<0\|1\|2>:<testo>` | Righe G-code precedente / corrente / successiva (`t0`..`t2`) |
 | `MSG:<testo>` | Messaggio operatore o nome del file (`t3`) |
@@ -297,7 +306,7 @@ Il display invia `#` seguito da un carattere di comando:
 
 | Carattere | Comando | Carattere | Comando |
 |-----------|---------|-----------|---------|
-| `M0` / `M1` | Modo Wheel / Joy | `q` | G53 |
+| `M0` / `M1` | Modo Wheel / Joy | `q` | G53 (page0) / ABS on-off (page3 `bt7`) |
 | `X` `Y` `Z` `A` | Selezione asse encoder | `w` `e` `r` `t` | G54 / G55 / G56 / G57 |
 | `F` | Encoder su feed override | `x` `y` `z` `a` | Zero X / Y / Z / A |
 | `0` | Encoder disattivato | `*` | Zero ALL |

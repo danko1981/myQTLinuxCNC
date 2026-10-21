@@ -212,10 +212,26 @@ void applyAutoState(String state) {
 
   nextionSetVal("bt0", running ? 1 : 0);                      // START: premuto mentre gira
   nextionCmd((running || state == "ESTOP") ? "tsw bt0,0" : "tsw bt0,1");
-  nextionSetVal("bt1", 0);                                    // STOP: attivo solo con programma in corso
-  nextionCmd(stopped ? "tsw bt1,0" : "tsw bt1,1");
+  nextionSetVal("bt1", stopped ? 1 : 0);                      // STOP: rosso (premuto) a macchina ferma,
+  nextionCmd(stopped ? "tsw bt1,0" : "tsw bt1,1");            // attivo solo con programma in corso
   nextionSetVal("bt2", paused ? 1 : 0);                       // PAUSE: premuto = in pausa
   nextionCmd(stopped ? "tsw bt2,0" : "tsw bt2,1");
+}
+
+// Visualizzazione DRO da LinuxCNC: absView = coordinate assolute (G53), wcs = sistema attivo (G54...)
+void applyView(bool absView, String wcs) {
+  if (currentPage == PAGE_ID_AUTO) {
+    nextionSetVal("bt7", absView ? 1 : 0);  // ABS
+    nextionSetTextStr("t5", wcs);
+    nextionCmd(absView ? "t5.picc=5" : "t5.picc=6");
+  } else if (currentPage == PAGE_ID_MAIN) {
+    // page0: bt0 = G53, bt1..bt4 = G54..G57
+    nextionSetVal("bt0", absView ? 1 : 0);
+    nextionSetVal("bt1", (!absView && wcs == "G54") ? 1 : 0);
+    nextionSetVal("bt2", (!absView && wcs == "G55") ? 1 : 0);
+    nextionSetVal("bt3", (!absView && wcs == "G56") ? 1 : 0);
+    nextionSetVal("bt4", (!absView && wcs == "G57") ? 1 : 0);
+  }
 }
 
 // INTERPRETE DEI DATI TRASMESSI DA LINUXCNC
@@ -237,6 +253,9 @@ void parsePCData() {
       if (currentPage != PAGE_ID_TOOL) nextionSetTextStr("tmode", line.substring(4));
     } else if (line.startsWith("OVR:")) {
       if (currentPage != PAGE_ID_TOOL) nextionSetTextStr("tF", line.substring(4));  // "F100%"
+    } else if (line.startsWith("VIEW:") && line.length() >= 8) {
+      // VIEW:<1=assoluto|0=WCS>:<sistema attivo>
+      applyView(line.charAt(5) == '1', line.substring(7));
     } else if (line.startsWith("SEL:")) {
       char axis = line.charAt(4);
       if (onAuto) currentAxis = (axis == '0') ? 'L' : axis;  // Fine programma: torna alla scelta riga
@@ -657,7 +676,8 @@ void serialListenerTask(void* parameter) {
         else if (cmd == 'j') Serial.println("SCALE:0.10");
         else if (cmd == 'k') Serial.println("SCALE:1.00");
         else if (cmd == 'l') Serial.println("SCALE:10.0");
-        else if (cmd == 'q') Serial.println("CMD:G53");
+        // In page3 bt7 (ABS) invia lo stesso "#q" della G53 di page0: li' alterna DRO assoluto / WCS
+        else if (cmd == 'q') Serial.println(currentPage == PAGE_ID_AUTO ? "CMD:VIEW_TOGGLE" : "CMD:G53");
         else if (cmd == 'w') Serial.println("CMD:G54");
         else if (cmd == 'e') Serial.println("CMD:G55");
         else if (cmd == 'r') Serial.println("CMD:G56");
