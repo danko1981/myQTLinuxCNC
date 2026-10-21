@@ -27,7 +27,46 @@ net estop-loop iocontrol.0.user-enable-out => iocontrol.0.emc-enable-in
 net tool-change-loopback  iocontrol.0.tool-change  => iocontrol.0.tool-changed
 net tool-prepare-loopback iocontrol.0.tool-prepare => iocontrol.0.tool-prepared
 
-# Sonda simulata: da un altro terminale, durante una tastatura (G38.x, M6, touch plate):
+# ==========================================
+# SONDA SIMULATA (tool sensor e touch plate)
+# ==========================================
+# sim_probe.py calcola la quota Z macchina del mandrino al contatto, in base
+# all'utensile e alla posizione XY (parametri in [SIM_PROBE] di qtdragon_sim.ini).
+# Il confronto con la Z reale avviene qui in realtime: il tocco e' preciso.
+loadusr -Wn sim_probe python ./sim_probe.py
+loadrt comp names=sim-probe-cmp
+loadrt conv_s32_float names=sim-probe-mtype
+loadrt wcomp names=sim-probe-armed
+loadrt and2 names=sim-probe-and
+loadrt or2 names=sim-probe-or
+addf sim-probe-cmp servo-thread
+addf sim-probe-mtype servo-thread
+addf sim-probe-armed servo-thread
+addf sim-probe-and servo-thread
+addf sim-probe-or servo-thread
+
+net sim-probe-x    joint.0.pos-fb             => sim_probe.x
+net sim-probe-y    joint.1.pos-fb             => sim_probe.y
+net sim-probe-tool iocontrol.0.tool-number    => sim_probe.tool-number
+net sim-probe-prep iocontrol.0.tool-prep-number => sim_probe.tool-prep-number
+
+# Contatto quando la Z del mandrino scende sotto la quota di contatto (comp: out = in1 > in0)
+net sim-probe-contact-z sim_probe.contact-z => sim-probe-cmp.in1
+net sim-probe-z         joint.2.pos-fb      => sim-probe-cmp.in0
+
+# Sonda attiva solo durante un movimento di tastatura G38.x (motion-type 5):
+# niente "probe tripped during non-probe move" quando si lavora sotto il pezzo
+net sim-probe-mtype   motion.motion-type  => sim-probe-mtype.in
+net sim-probe-mtype-f sim-probe-mtype.out => sim-probe-armed.in
+setp sim-probe-armed.min 4.5
+setp sim-probe-armed.max 5.5
+
+net sim-probe-touch sim-probe-cmp.out   => sim-probe-and.in0
+net sim-probe-arm   sim-probe-armed.out => sim-probe-and.in1
+net sim-probe-auto  sim-probe-and.out   => sim-probe-or.in0
+
+# Contatto manuale (es. tastature in X/Y, non simulate): da un altro terminale
 #   halcmd sets probe-sim 1   (contatto)
 #   halcmd sets probe-sim 0   (rilascio)
-net probe-sim => motion.probe-input
+net probe-sim => sim-probe-or.in1
+net probe-sim-out sim-probe-or.out => motion.probe-input
